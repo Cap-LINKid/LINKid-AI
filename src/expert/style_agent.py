@@ -1,32 +1,97 @@
 from __future__ import annotations
 
 import json
-import re
+from pathlib import Path
 from typing import Dict, Any, List
 
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
 
+# label_mapping.json 기반 한국어 매핑
+_LABEL_MAPPING_PATH = Path(__file__).parent.parent.parent / "models" / "dpics-electra" / "label_mapping.json"
 
-_STYLE_PROMPT = ChatPromptTemplate.from_messages([
+# DPICS 코드 -> 한국어 이름 매핑
+_DPICS_TO_KOREAN = {
+    "RD": "반영적 진술",  # Reflective Statement
+    "PR": "칭찬",  # Labeled Praise, Unlabeled Praise, Prosocial Talk
+    "CMD": "지시",  # Command
+    "Q": "질문",  # Question
+    "NT": "중립적 발화",  # Neutral Talk
+    "BD": "행동 설명",  # Behavior Description
+    "NEG": "부정적 발화",  # Negative Talk
+    "OTH": "기타",
+    "IGN": "무시",
+}
+
+# label_mapping.json에서 한국어 매핑 로드
+def _load_label_mapping() -> Dict[str, str]:
+    """label_mapping.json을 로드하여 영어 라벨 -> 한국어 매핑 생성"""
+    if _LABEL_MAPPING_PATH.exists():
+        try:
+            with open(_LABEL_MAPPING_PATH, "r", encoding="utf-8") as f:
+                mapping_data = json.load(f)
+            
+            # 영어 라벨 -> 한국어 매핑
+            english_to_korean = {
+                "Reflective Statement": "반영적 진술",
+                "Labeled Praise": "칭찬",
+                "Unlabeled Praise": "칭찬",
+                "Prosocial Talk": "칭찬",
+                "Command": "지시",
+                "Question": "질문",
+                "Neutral Talk": "중립적 발화",
+                "Behavior Description": "행동 설명",
+                "Negative Talk": "부정적 발화",
+            }
+            
+            return english_to_korean
+        except Exception as e:
+            print(f"label_mapping.json 로드 실패: {e}")
+    
+    return {}
+
+# 영어 라벨 -> 한국어 매핑
+_ENGLISH_LABEL_TO_KOREAN = _load_label_mapping()
+
+# DPICS 코드 -> 영어 라벨 -> 한국어 매핑 (dpics_electra.py의 매핑 참고)
+_DPICS_CODE_TO_ENGLISH = {
+    "RD": "Reflective Statement",
+    "PR": "Labeled Praise",  # 또는 Unlabeled Praise, Prosocial Talk
+    "CMD": "Command",
+    "Q": "Question",
+    "NT": "Neutral Talk",
+    "BD": "Behavior Description",
+    "NEG": "Negative Talk",
+    "IGN": "Ignore",  # IGN은 영어 매핑이 없으므로 직접 한국어 사용
+    "OTH": "Other",  # OTH도 영어 매핑이 없으므로 직접 한국어 사용
+}
+
+def _get_korean_label_name(dpics_code: str) -> str:
+    """DPICS 코드를 한국어 이름으로 변환"""
+    english_label = _DPICS_CODE_TO_ENGLISH.get(dpics_code)
+    if english_label and english_label in _ENGLISH_LABEL_TO_KOREAN:
+        return _ENGLISH_LABEL_TO_KOREAN[english_label]
+    return _DPICS_TO_KOREAN.get(dpics_code, "기타")
+
+
+_SUMMARY_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
-            "You are an expert analyzing parenting communication style. "
-            "Analyze the parent's communication style and ratios based on labeled utterances and patterns. "
-            "Return ONLY a JSON object with: {style_type, label_distribution, positive_ratio, negative_ratio, "
-            "command_ratio, question_ratio, reflection_ratio, overall_assessment}. "
-            "style_type: 'authoritative', 'authoritarian', 'permissive', 'uninvolved', 'mixed'. "
-            "No extra text."
+            "You are an expert analyzing parent-child communication patterns. "
+            "Analyze the label distribution ratios for parent and child utterances and provide insights. "
+            "Return ONLY a summary text in Korean (2-3 sentences) that describes the communication patterns, "
+            "strengths, and areas for improvement based on the ratios. "
+            "Be specific about percentages and patterns. No extra text, just the summary."
         ),
     ),
     (
         "human",
         (
-            "Labeled utterances:\n{utterances_labeled}\n\n"
-            "Detected patterns:\n{patterns}\n\n"
-            "Analyze communication style and return JSON object only."
+            "부모 발화 라벨 비율:\n{parent_ratios}\n\n"
+            "아이 발화 라벨 비율:\n{child_ratios}\n\n"
+            "위 비율을 분석하여 대화 패턴에 대한 요약을 작성해주세요."
         ),
     ),
 ])
@@ -34,94 +99,125 @@ _STYLE_PROMPT = ChatPromptTemplate.from_messages([
 
 def analyze_style_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    ⑦ analyze_style: 스타일/비율 분석 (LLM + 패턴/라벨)
+    ⑦ analyze_style: 스타일/비율 분석 (라벨 기반 통계)
     """
     utterances_labeled = state.get("utterances_labeled") or []
     patterns = state.get("patterns") or []
     
+    # 모든 DPICS 라벨 목록
+    all_labels = ["RD", "PR", "CMD", "Q", "NT", "BD", "NEG", "IGN", "OTH"]
+    
     if not utterances_labeled:
+        # 모든 라벨에 대한 빈 비율 생성
+        empty_label_ratios = {label: 0.0 for label in all_labels}
+        empty_categories = [
+            {"name": _get_korean_label_name(label), "ratio": 0.0, "label": label}
+            for label in all_labels
+        ]
+        
         return {
             "style_analysis": {
-                "style_type": "unknown",
-                "label_distribution": {},
-                "positive_ratio": 0.0,
-                "negative_ratio": 0.0,
-                "command_ratio": 0.0,
-                "question_ratio": 0.0,
-                "reflection_ratio": 0.0,
-                "overall_assessment": "분석할 데이터가 없습니다."
+                "interaction_style": {
+                    "parent_analysis": {
+                        "categories": empty_categories,
+                        "label_distribution": empty_label_ratios
+                    },
+                    "child_analysis": {
+                        "categories": empty_categories,
+                        "label_distribution": empty_label_ratios
+                    }
+                },
+                "summary": "분석할 데이터가 없습니다."
             }
         }
     
     # 패턴/라벨 기반 통계 계산
-    parent_utterances = [utt for utt in utterances_labeled if utt.get("speaker") == "Parent"]
-    total_parent = len(parent_utterances)
+    parent_utterances = [utt for utt in utterances_labeled if utt.get("speaker") in ["Parent", "MOM", "Dad", "Father", "Mother"]]
+    child_utterances = [utt for utt in utterances_labeled if utt.get("speaker") in ["Child", "CHI", "Kid", "Son", "Daughter"]]
     
-    label_counts = {}
+    total_parent = len(parent_utterances)
+    total_child = len(child_utterances)
+    
+    # 부모 발화 라벨 통계
+    parent_label_counts = {}
     for utt in parent_utterances:
         label = utt.get("label", "OTH")
-        label_counts[label] = label_counts.get(label, 0) + 1
+        parent_label_counts[label] = parent_label_counts.get(label, 0) + 1
     
-    # 비율 계산
-    positive_ratio = (label_counts.get("PR", 0) / total_parent) if total_parent > 0 else 0.0
-    negative_ratio = (label_counts.get("NEG", 0) / total_parent) if total_parent > 0 else 0.0
-    command_ratio = (label_counts.get("CMD", 0) / total_parent) if total_parent > 0 else 0.0
-    question_ratio = (label_counts.get("Q", 0) / total_parent) if total_parent > 0 else 0.0
-    reflection_ratio = (label_counts.get("RD", 0) / total_parent) if total_parent > 0 else 0.0
+    # 아이 발화 라벨 통계
+    child_label_counts = {}
+    for utt in child_utterances:
+        label = utt.get("label", "OTH")
+        child_label_counts[label] = child_label_counts.get(label, 0) + 1
     
-    # LLM 기반 스타일 분석
-    utterances_str = "\n".join([
-        f"[{utt.get('speaker')}] [{utt.get('label')}] {utt.get('text')}"
-        for utt in utterances_labeled
+    # 모든 라벨에 대한 비율 계산 (부모 발화)
+    parent_label_ratios = {}
+    for label in all_labels:
+        count = parent_label_counts.get(label, 0)
+        ratio = (count / total_parent) if total_parent > 0 else 0.0
+        parent_label_ratios[label] = round(ratio, 2)
+    
+    # 모든 라벨에 대한 비율 계산 (아이 발화)
+    child_label_ratios = {}
+    for label in all_labels:
+        count = child_label_counts.get(label, 0)
+        ratio = (count / total_child) if total_child > 0 else 0.0
+        child_label_ratios[label] = round(ratio, 2)
+    
+    # LLM 기반 요약 생성
+    parent_ratios_str = "\n".join([
+        f"- {_get_korean_label_name(label)} ({label}): {parent_label_ratios.get(label, 0.0) * 100:.1f}%"
+        for label in all_labels
     ])
-    patterns_str = "\n".join([
-        f"- {p.get('pattern_name')}: {p.get('description')}"
-        for p in patterns
-    ]) if patterns else "(없음)"
+    child_ratios_str = "\n".join([
+        f"- {_get_korean_label_name(label)} ({label}): {child_label_ratios.get(label, 0.0) * 100:.1f}%"
+        for label in all_labels
+    ])
     
     try:
         llm = get_llm(mini=False)
-        res = (_STYLE_PROMPT | llm).invoke({
-            "utterances_labeled": utterances_str,
-            "patterns": patterns_str,
+        res = (_SUMMARY_PROMPT | llm).invoke({
+            "parent_ratios": parent_ratios_str,
+            "child_ratios": child_ratios_str,
         })
-        content = getattr(res, "content", "") or str(res)
-        
-        # JSON 객체 파싱
-        json_match = re.search(r'\{[\s\S]*\}', content)
-        if json_match:
-            style_analysis = json.loads(json_match.group(0))
-            if isinstance(style_analysis, dict):
-                # 통계 데이터 병합
-                style_analysis["label_distribution"] = label_counts
-                style_analysis["positive_ratio"] = positive_ratio
-                style_analysis["negative_ratio"] = negative_ratio
-                style_analysis["command_ratio"] = command_ratio
-                style_analysis["question_ratio"] = question_ratio
-                style_analysis["reflection_ratio"] = reflection_ratio
-                return {"style_analysis": style_analysis}
+        summary = getattr(res, "content", "") or str(res)
+        summary = summary.strip()
     except Exception as e:
-        print(f"Style analysis error: {e}")
+        print(f"Summary generation error: {e}")
+        # 폴백: 간단한 요약
+        summary = "대화 패턴을 분석했습니다."
     
-    # 폴백: 통계 기반 스타일 추론
-    style_type = "mixed"
-    if command_ratio > 0.3 and negative_ratio > 0.2:
-        style_type = "authoritarian"
-    elif positive_ratio > 0.3 and reflection_ratio > 0.2:
-        style_type = "authoritative"
-    elif command_ratio < 0.1 and negative_ratio < 0.1:
-        style_type = "permissive"
+    # 모든 라벨에 대한 카테고리 생성 (부모 발화) - 한국어 매핑 적용
+    parent_categories = [
+        {
+            "name": _get_korean_label_name(label),
+            "ratio": parent_label_ratios.get(label, 0.0),
+            "label": label
+        }
+        for label in all_labels
+    ]
+    
+    # 모든 라벨에 대한 카테고리 생성 (아이 발화) - 한국어 매핑 적용
+    child_categories = [
+        {
+            "name": _get_korean_label_name(label),
+            "ratio": child_label_ratios.get(label, 0.0),
+            "label": label
+        }
+        for label in all_labels
+    ]
     
     return {
         "style_analysis": {
-            "style_type": style_type,
-            "label_distribution": label_counts,
-            "positive_ratio": positive_ratio,
-            "negative_ratio": negative_ratio,
-            "command_ratio": command_ratio,
-            "question_ratio": question_ratio,
-            "reflection_ratio": reflection_ratio,
-            "overall_assessment": f"통계 기반 분석: {style_type} 스타일로 추정됩니다."
+            "interaction_style": {
+                "parent_analysis": {
+                    "categories": parent_categories
+                },
+                "child_analysis": {
+                    "categories": child_categories
+                }
+            },
+            "summary": summary
         }
     }
 
