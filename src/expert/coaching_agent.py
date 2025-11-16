@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime, timedelta
 from typing import Dict, Any
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -14,10 +16,23 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
         (
             "You are a professional parenting coach. "
             "Create a personalized coaching plan based on the dialogue analysis. "
-            "Return a structured response in Korean with: "
-            "1) 핵심 개선 포인트 (3-5개), 2) 구체적 실천 방법 (각 포인트당 2-3개), "
-            "3) 다음 대화에서 시도해볼 기법, 4) 장기적 목표. "
-            "Be specific, actionable, and encouraging."
+            "Return ONLY a JSON object with the following structure:\n"
+            "{{\n"
+            '  "summary": "요약 텍스트 (2-3문장)",\n'
+            '  "challenge": {{\n'
+            '    "title": "챌린지 제목 (패턴명 + 횟수 + 도전)",\n'
+            '    "goal": "챌린지 목표 (1문장)",\n'
+            '    "actions": ["액션1", "액션2", "액션3"]\n'
+            "  }},\n"
+            '  "qa_tips": [\n'
+            '    {{"question": "질문1", "answer": "답변1"}},\n'
+            '    {{"question": "질문2", "answer": "답변2"}}\n'
+            "  ]\n"
+            "}}\n"
+            "The challenge should focus on the most frequent pattern. "
+            "Actions should be specific and actionable. "
+            "QA tips should address common questions about the pattern. "
+            "All text in Korean. No extra text, only JSON."
         ),
     ),
     (
@@ -27,7 +42,7 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "스타일 분석:\n{style_analysis}\n\n"
             "탐지된 패턴:\n{patterns}\n\n"
             "핵심 순간:\n{key_moments}\n\n"
-            "개인화된 코칭 계획을 작성해주세요."
+            "위 정보를 바탕으로 코칭 계획을 JSON 형식으로 작성해주세요."
         ),
     ),
 ])
@@ -40,15 +55,23 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     summary = state.get("summary") or ""
     style_analysis = state.get("style_analysis") or {}
     patterns = state.get("patterns") or []
-    key_moments = state.get("key_moments") or []
+    key_moments = state.get("key_moments") or {}
     
     if not summary and not patterns:
         return {
             "coaching_plan": {
-                "improvement_points": [],
-                "action_items": [],
-                "next_techniques": [],
-                "long_term_goals": []
+                "summary": "분석할 데이터가 없습니다.",
+                "challenge": {
+                    "title": "",
+                    "goal": "",
+                    "period_days": 7,
+                    "suggested_period": {
+                        "start": _get_today_str(),
+                        "end": _get_date_after_days(7)
+                    },
+                    "actions": []
+                },
+                "qa_tips": []
             }
         }
     
@@ -56,14 +79,35 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     
     # 포맷팅
     style_str = json.dumps(style_analysis, ensure_ascii=False, indent=2) if style_analysis else "(없음)"
+    
+    # 패턴 정보 포맷팅 (패턴명과 횟수 포함)
+    pattern_examples = key_moments.get("pattern_examples", []) if isinstance(key_moments, dict) else []
     patterns_str = "\n".join([
-        f"- {p.get('pattern_name')}: {p.get('description')}"
-        for p in patterns
-    ]) if patterns else "(없음)"
-    key_moments_str = "\n".join([
-        f"- {m.get('description')}"
-        for m in key_moments
-    ]) if key_moments else "(없음)"
+        f"- {p.get('pattern_name', '알 수 없음')}: {p.get('description', '')} (발생 횟수: {p.get('occurrences', 0)})"
+        for p in pattern_examples
+    ]) if pattern_examples else (
+        "\n".join([
+            f"- {p.get('pattern_name', '알 수 없음')}: {p.get('description', '')}"
+            for p in patterns
+        ]) if patterns else "(없음)"
+    )
+    
+    key_moments_str = ""
+    if isinstance(key_moments, dict):
+        positive = key_moments.get("positive", [])
+        needs_improvement = key_moments.get("needs_improvement", [])
+        if positive:
+            key_moments_str += "긍정적 순간:\n" + "\n".join([
+                f"- {m.get('reason', '')}"
+                for m in positive
+            ]) + "\n\n"
+        if needs_improvement:
+            key_moments_str += "개선이 필요한 순간:\n" + "\n".join([
+                f"- {m.get('reason', '')}"
+                for m in needs_improvement
+            ])
+    else:
+        key_moments_str = str(key_moments) if key_moments else "(없음)"
     
     try:
         res = (_COACHING_PROMPT | llm).invoke({
@@ -72,47 +116,50 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "patterns": patterns_str,
             "key_moments": key_moments_str,
         })
-        coaching_text = getattr(res, "content", "") or str(res)
+        content = getattr(res, "content", "") or str(res)
         
-        # 구조화된 응답 파싱 시도 (간단한 파싱)
-        return {
-            "coaching_plan": {
-                "full_text": coaching_text,
-                "improvement_points": _extract_section(coaching_text, "핵심 개선 포인트"),
-                "action_items": _extract_section(coaching_text, "실천 방법"),
-                "next_techniques": _extract_section(coaching_text, "시도해볼 기법"),
-                "long_term_goals": _extract_section(coaching_text, "장기적 목표")
-            }
-        }
+        # JSON 객체 파싱
+        json_match = re.search(r'\{[\s\S]*\}', content)
+        if json_match:
+            coaching_data = json.loads(json_match.group(0))
+            if isinstance(coaching_data, dict):
+                # 챌린지 정보에 날짜 정보 추가
+                if "challenge" in coaching_data and isinstance(coaching_data["challenge"], dict):
+                    coaching_data["challenge"]["period_days"] = 7
+                    coaching_data["challenge"]["suggested_period"] = {
+                        "start": _get_today_str(),
+                        "end": _get_date_after_days(7)
+                    }
+                
+                return {"coaching_plan": coaching_data}
     except Exception as e:
         print(f"Coaching plan error: {e}")
-        return {
-            "coaching_plan": {
-                "full_text": "코칭 계획 생성 중 오류가 발생했습니다.",
-                "improvement_points": [],
-                "action_items": [],
-                "next_techniques": [],
-                "long_term_goals": []
-            }
-        }
-
-
-def _extract_section(text: str, section_name: str) -> list:
-    """텍스트에서 섹션 추출 (간단한 휴리스틱)"""
-    lines = text.split('\n')
-    in_section = False
-    items = []
     
-    for line in lines:
-        if section_name in line:
-            in_section = True
-            continue
-        if in_section:
-            line = line.strip()
-            if line and (line.startswith('-') or line.startswith('•') or line.startswith('1.') or line.startswith('2.')):
-                items.append(line.lstrip('-•1234567890. '))
-            elif line and not line.startswith('#'):
-                if items:  # 섹션이 끝난 것으로 간주
-                    break
-    return items
+    # 폴백: 기본 구조 반환
+    return {
+        "coaching_plan": {
+            "summary": "코칭 계획 생성 중 오류가 발생했습니다.",
+            "challenge": {
+                "title": "",
+                "goal": "",
+                "period_days": 7,
+                "suggested_period": {
+                    "start": _get_today_str(),
+                    "end": _get_date_after_days(7)
+                },
+                "actions": []
+            },
+            "qa_tips": []
+        }
+    }
+
+
+def _get_today_str() -> str:
+    """오늘 날짜를 YYYY-MM-DD 형식으로 반환"""
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def _get_date_after_days(days: int) -> str:
+    """오늘부터 days일 후 날짜를 YYYY-MM-DD 형식으로 반환"""
+    return (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
 
