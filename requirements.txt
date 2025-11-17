@@ -18,3 +18,10 @@ pytz>=2024.1
 # ML Models
 transformers>=4.30.0
 torch>=2.0.0
+
+# FastAPI
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Storage (optional - Redis 사용 시)
+# redis>=5.0.0
