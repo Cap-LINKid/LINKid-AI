@@ -29,7 +29,8 @@ graph = build_question_router()
 # Request/Response 모델
 class DialogueRequest(BaseModel):
     utterances_ko: List[str]
-    challenge_spec: Optional[Dict[str, Any]] = None
+    challenge_spec: Optional[Dict[str, Any]] = None  # 하위 호환성: 단일 챌린지
+    challenge_specs: Optional[List[Dict[str, Any]]] = None  # 여러 챌린지
     meta: Optional[Dict[str, Any]] = None
 
 
@@ -134,9 +135,18 @@ def _run_analysis_with_status(execution_id: str, state: Dict[str, Any]):
 @app.post("/analyze", response_model=ExecutionResponse)
 async def analyze_dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
     """대화 분석 실행 (비동기)"""
+    # challenge_specs 우선, 없으면 challenge_spec을 리스트로 변환
+    challenge_specs = request.challenge_specs
+    if challenge_specs is None:
+        if request.challenge_spec:
+            challenge_specs = [request.challenge_spec]
+        else:
+            challenge_specs = []
+    
     state = {
         "utterances_ko": request.utterances_ko,
-        "challenge_spec": request.challenge_spec or {},
+        "challenge_specs": challenge_specs,
+        "challenge_spec": request.challenge_spec or {},  # 하위 호환성 유지
         "meta": request.meta or {}
     }
     

@@ -223,12 +223,29 @@ def summarize_node(state: Dict[str, Any]) -> Dict[str, Any]:
     pattern_metrics = _extract_pattern_count_metrics(patterns, key_moments)
     current_metrics.extend(pattern_metrics)
     
-    # 챌린지 평가 포맷팅
-    challenge_evaluation = {}
-    if challenge_eval and challenge_spec:
+    # 챌린지 평가 포맷팅 (여러 챌린지 지원)
+    challenge_evaluations = []
+    challenge_evals = state.get("challenge_evals") or []
+    challenge_specs = state.get("challenge_specs") or []
+    
+    # challenge_evals가 있으면 여러 챌린지 처리
+    if challenge_evals and challenge_specs:
+        for challenge_eval_item, challenge_spec_item in zip(challenge_evals, challenge_specs):
+            evaluation = _format_challenge_evaluation(
+                challenge_eval_item, challenge_spec_item, utterances_labeled, key_moments
+            )
+            if evaluation:
+                challenge_evaluations.append(evaluation)
+    # 하위 호환성: 단일 챌린지 처리
+    elif challenge_eval and challenge_spec:
         challenge_evaluation = _format_challenge_evaluation(
             challenge_eval, challenge_spec, utterances_labeled, key_moments
         )
+        if challenge_evaluation:
+            challenge_evaluations.append(challenge_evaluation)
+    
+    # 단일 챌린지인 경우 challenge_evaluation으로도 반환 (하위 호환성)
+    challenge_evaluation = challenge_evaluations[0] if challenge_evaluations else {}
     
     return {
         "summary": {
@@ -236,7 +253,8 @@ def summarize_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 "comment": comment
             },
             "current_metrics": current_metrics,
-            "challenge_evaluation": challenge_evaluation
+            "challenge_evaluation": challenge_evaluation,  # 하위 호환성 (단일)
+            "challenge_evaluations": challenge_evaluations  # 여러 챌린지
         }
     }
 

@@ -6,7 +6,8 @@ from typing import Dict, Any, TypedDict, List, Optional
 class RouterState(TypedDict, total=False):
     # 입력
     utterances_ko: List[str]  # 한국어 대화 발화 리스트
-    challenge_spec: Dict[str, Any]  # 이번 주 챌린지 스펙
+    challenge_spec: Dict[str, Any]  # 이번 주 챌린지 스펙 (하위 호환성)
+    challenge_specs: List[Dict[str, Any]]  # 여러 챌린지 스펙
     meta: Dict[str, Any]  # 메타데이터
     
     # 중간 처리 결과
@@ -20,7 +21,8 @@ class RouterState(TypedDict, total=False):
     key_moments: Dict[str, Any]  # ⑥ key_moments 결과 - {positive: [], needs_improvement: [], pattern_examples: []}
     style_analysis: Dict[str, Any]  # ⑦ analyze_style 결과
     coaching_plan: Dict[str, Any]  # ⑧ coaching_plan 결과
-    challenge_eval: Dict[str, Any]  # ⑨ challenge_eval 결과
+    challenge_eval: Dict[str, Any]  # ⑨ challenge_eval 결과 (단일, 하위 호환성)
+    challenge_evals: List[Dict[str, Any]]  # ⑨ challenge_eval 결과 (여러 개)
     summary_diagnosis: Dict[str, Any]  # summary_diagnosis 결과 - {stage_name, positive_ratio, negative_ratio}
     
     # 최종 결과

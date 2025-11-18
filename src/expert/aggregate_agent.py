@@ -11,7 +11,9 @@ def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
     summary = state.get("summary", {})
     style_analysis = state.get("style_analysis", {})
     challenge_eval = state.get("challenge_eval", {})
+    challenge_evals = state.get("challenge_evals", [])
     challenge_spec = state.get("challenge_spec", {})
+    challenge_specs = state.get("challenge_specs", [])
     utterances_labeled = state.get("utterances_labeled", [])
     key_moments = state.get("key_moments", {})
     patterns = state.get("patterns", [])
@@ -39,13 +41,31 @@ def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
         new_metrics = [m for m in style_metrics + pattern_metrics if m.get("key") not in metric_keys]
         summary["current_metrics"] = existing_metrics + new_metrics
         
-        # challenge_evaluation 업데이트
-        if challenge_eval and challenge_spec:
+        # challenge_evaluation 업데이트 (여러 챌린지 지원)
+        if not summary.get("challenge_evaluations"):
             from src.expert.summarize_agent import _format_challenge_evaluation
-            challenge_evaluation = _format_challenge_evaluation(
-                challenge_eval, challenge_spec, utterances_labeled, key_moments
-            )
-            summary["challenge_evaluation"] = challenge_evaluation
+            challenge_evaluations = []
+            
+            # 여러 챌린지 처리
+            if challenge_evals and challenge_specs:
+                for challenge_eval_item, challenge_spec_item in zip(challenge_evals, challenge_specs):
+                    evaluation = _format_challenge_evaluation(
+                        challenge_eval_item, challenge_spec_item, utterances_labeled, key_moments
+                    )
+                    if evaluation:
+                        challenge_evaluations.append(evaluation)
+            # 하위 호환성: 단일 챌린지 처리
+            elif challenge_eval and challenge_spec:
+                challenge_evaluation = _format_challenge_evaluation(
+                    challenge_eval, challenge_spec, utterances_labeled, key_moments
+                )
+                if challenge_evaluation:
+                    challenge_evaluations.append(challenge_evaluation)
+            
+            if challenge_evaluations:
+                summary["challenge_evaluations"] = challenge_evaluations
+                # 하위 호환성을 위해 첫 번째 챌린지도 challenge_evaluation으로 설정
+                summary["challenge_evaluation"] = challenge_evaluations[0]
     
     # coaching_plan에서 coaching_plan 추출 ({"coaching_plan": {...}} 형식일 수 있음)
     actual_coaching_plan = coaching_plan

@@ -2,49 +2,6 @@ from __future__ import annotations
 
 from typing import Dict, Any
 
-from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
-
-from src.utils.common import get_structured_llm
-
-
-class SummaryDiagnosis(BaseModel):
-    """요약 진단"""
-    stage_name: str = Field(description="상호작용 단계 이름 (예: '공감적 협력', '지시적 상호작용' 등)")
-    positive_ratio: float = Field(description="긍정적 상호작용 비율 (0.0 ~ 1.0)")
-    negative_ratio: float = Field(description="부정적 상호작용 비율 (0.0 ~ 1.0)")
-
-
-_SUMMARY_DIAGNOSIS_PROMPT = ChatPromptTemplate.from_messages([
-    (
-        "system",
-        (
-            "당신은 부모-자녀 상호작용을 진단하는 전문가입니다. "
-            "라벨 분포와 패턴을 분석하여 상호작용의 단계와 긍정/부정 비율을 판단하세요.\n\n"
-            "단계 이름 예시:\n"
-            "- '공감적 협력': 반영적 듣기와 칭찬이 많고, 부정적 발화가 적은 경우\n"
-            "- '지시적 상호작용': 지시형 발화가 많고, 질문과 칭찬이 적은 경우\n"
-            "- '균형잡힌 대화': 다양한 발화 유형이 균형있게 분포된 경우\n"
-            "- '개선이 필요한 상호작용': 부정적 발화가 많고, 긍정적 발화가 적은 경우\n\n"
-            "긍정적 비율 계산 기준:\n"
-            "- 반영적 듣기(RD), 칭찬(PR) 비율이 높을수록 긍정적\n"
-            "- 부정적 발화(NEG), 지시형 발화(CMD) 비율이 낮을수록 긍정적\n\n"
-            "부정적 비율 계산 기준:\n"
-            "- 부정적 발화(NEG), 지시형 발화(CMD) 비율이 높을수록 부정적\n"
-            "- 반영적 듣기(RD), 칭찬(PR) 비율이 낮을수록 부정적\n\n"
-            "positive_ratio와 negative_ratio의 합은 1.0이 되도록 계산하세요."
-        ),
-    ),
-    (
-        "human",
-        (
-            "부모 발화 라벨 비율:\n{parent_ratios}\n\n"
-            "탐지된 패턴:\n{patterns}\n\n"
-            "위 정보를 바탕으로 상호작용 단계와 긍정/부정 비율을 진단해주세요."
-        ),
-    ),
-])
-
 
 def _calculate_ratios_from_labels(utterances_labeled: list) -> tuple[float, float]:
     """라벨 기반으로 긍정/부정 비율 계산"""
@@ -98,13 +55,71 @@ def _calculate_ratios_from_labels(utterances_labeled: list) -> tuple[float, floa
     return round(positive_ratio, 2), round(negative_ratio, 2)
 
 
+def _determine_stage_name(
+    positive_ratio: float, 
+    negative_ratio: float, 
+    utterances_labeled: list,
+    patterns: list
+) -> str:
+    """비율과 패턴을 기반으로 상호작용 단계 이름 결정"""
+    if not utterances_labeled:
+        return "분석 불가"
+    
+    # 부모 발화 필터링
+    parent_utterances = [
+        utt for utt in utterances_labeled 
+        if utt.get("speaker", "").lower() in ["parent", "mom", "mother", "dad", "father"]
+    ]
+    
+    if not parent_utterances:
+        return "분석 불가"
+    
+    total = len(parent_utterances)
+    
+    # 라벨별 비율 계산
+    rd_count = sum(1 for utt in parent_utterances if utt.get("label") == "RD")
+    pr_count = sum(1 for utt in parent_utterances if utt.get("label") == "PR")
+    cmd_count = sum(1 for utt in parent_utterances if utt.get("label") == "CMD")
+    neg_count = sum(1 for utt in parent_utterances if utt.get("label") == "NEG")
+    q_count = sum(1 for utt in parent_utterances if utt.get("label") == "Q")
+    
+    rd_ratio = rd_count / total if total > 0 else 0.0
+    pr_ratio = pr_count / total if total > 0 else 0.0
+    cmd_ratio = cmd_count / total if total > 0 else 0.0
+    neg_ratio = neg_count / total if total > 0 else 0.0
+    
+    # 패턴 정보 확인
+    has_negative_pattern = any(
+        "부정" in str(p.get("pattern_name", "")).lower() or 
+        "negative" in str(p.get("pattern_name", "")).lower() or
+        "개선" in str(p.get("description", "")).lower()
+        for p in patterns
+    )
+    
+    # 단계 결정 로직
+    # 1. 공감적 협력: RD와 PR 비율이 높고, NEG가 낮은 경우
+    if (rd_ratio + pr_ratio) >= 0.4 and neg_ratio < 0.2 and not has_negative_pattern:
+        return "공감적 협력"
+    
+    # 2. 개선이 필요한 상호작용: NEG 비율이 높거나 부정적 패턴이 있는 경우
+    if neg_ratio >= 0.3 or (has_negative_pattern and neg_ratio >= 0.15):
+        return "개선이 필요한 상호작용"
+    
+    # 3. 지시적 상호작용: CMD 비율이 높고, RD/PR이 낮은 경우
+    if cmd_ratio >= 0.3 and (rd_ratio + pr_ratio) < 0.2:
+        return "지시적 상호작용"
+    
+    # 4. 균형잡힌 대화: 그 외의 경우
+    return "균형잡힌 대화"
+
+
 def summary_diagnosis_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     summary_diagnosis: 전체 상호작용 진단 (단계, 긍정/부정 비율)
+    utterances_labeled에서 직접 라벨 정보를 사용하여 Python으로 계산
     """
     utterances_labeled = state.get("utterances_labeled") or []
     patterns = state.get("patterns") or []
-    style_analysis = state.get("style_analysis") or {}
     
     if not utterances_labeled:
         return {
@@ -115,57 +130,16 @@ def summary_diagnosis_node(state: Dict[str, Any]) -> Dict[str, Any]:
             }
         }
     
-    # style_analysis에서 부모 발화 비율 추출
-    parent_ratios_str = ""
-    if isinstance(style_analysis, dict) and "style_analysis" in style_analysis:
-        actual_style = style_analysis["style_analysis"]
-        if "interaction_style" in actual_style:
-            parent_analysis = actual_style["interaction_style"].get("parent_analysis", {})
-            categories = parent_analysis.get("categories", [])
-            parent_ratios_str = "\n".join([
-                f"- {cat.get('name', '')} ({cat.get('label', '')}): {cat.get('ratio', 0.0) * 100:.1f}%"
-                for cat in categories
-            ])
-    
-    # 패턴 정보 포맷팅
-    patterns_str = "\n".join([
-        f"- {p.get('pattern_name', '알 수 없음')}: {p.get('description', '')}"
-        for p in patterns
-    ]) if patterns else "(없음)"
-    
-    # Structured LLM 사용
-    structured_llm = get_structured_llm(SummaryDiagnosis, mini=False)
-    
-    try:
-        res = (_SUMMARY_DIAGNOSIS_PROMPT | structured_llm).invoke({
-            "parent_ratios": parent_ratios_str or "분석 데이터 없음",
-            "patterns": patterns_str,
-        })
-        
-        if isinstance(res, SummaryDiagnosis):
-            # LLM 결과 사용
-            return {
-                "summary_diagnosis": {
-                    "stage_name": res.stage_name,
-                    "positive_ratio": res.positive_ratio,
-                    "negative_ratio": res.negative_ratio
-                }
-            }
-    except Exception as e:
-        print(f"Summary diagnosis LLM error: {e}")
-    
-    # 폴백: 라벨 기반 계산
+    # utterances_labeled에서 직접 Python으로 비율 계산
     positive_ratio, negative_ratio = _calculate_ratios_from_labels(utterances_labeled)
     
-    # 단계 이름 결정 (비율 기반)
-    if positive_ratio >= 0.6:
-        stage_name = "공감적 협력"
-    elif positive_ratio >= 0.4:
-        stage_name = "균형잡힌 대화"
-    elif negative_ratio >= 0.5:
-        stage_name = "개선이 필요한 상호작용"
-    else:
-        stage_name = "지시적 상호작용"
+    # 비율과 패턴을 기반으로 단계 이름 결정
+    stage_name = _determine_stage_name(
+        positive_ratio, 
+        negative_ratio, 
+        utterances_labeled, 
+        patterns
+    )
     
     return {
         "summary_diagnosis": {
