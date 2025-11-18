@@ -75,6 +75,7 @@ def create_execution(initial_state: Dict[str, Any]) -> str:
             "analyze_style": {"status": NodeStatus.PENDING, "started_at": None, "completed_at": None},
             "coaching_plan": {"status": NodeStatus.PENDING, "started_at": None, "completed_at": None},
             "challenge_eval": {"status": NodeStatus.PENDING, "started_at": None, "completed_at": None},
+            "summary_diagnosis": {"status": NodeStatus.PENDING, "started_at": None, "completed_at": None},
             "aggregate_result": {"status": NodeStatus.PENDING, "started_at": None, "completed_at": None},
         },
         "current_node": None,
@@ -152,6 +153,7 @@ def _update_status_by_node(execution_id: str, node_name: str, is_start: bool):
         "analyze_style": "style_analysis",
         "coaching_plan": "coaching_generation",
         "challenge_eval": "coaching_generation",
+        "summary_diagnosis": "style_analysis",
         "aggregate_result": "report_finalizing",
     }
     

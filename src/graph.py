@@ -7,7 +7,11 @@ from src.router.router import build_question_router
 from src.vs.ddl import get_tdl
 
 # Exported graph object for LangGraph Dev UI
-graph = build_question_router()
+_compiled_graph = build_question_router()
+
+# LangGraph UI에서 사용할 graph 객체
+# LangGraph UI는 전체 state를 반환하므로, result 필드에 최종 결과가 들어있음
+graph = _compiled_graph
 
 
 def run(message: str) -> Dict[str, Any]:

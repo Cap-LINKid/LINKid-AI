@@ -57,7 +57,7 @@ def _run_analysis_with_status(execution_id: str, state: Dict[str, Any]):
                 
                 # 노드 실행 순서 정의
                 sequential_nodes = ["preprocess", "translate_ko_to_en", "label_utterances", "detect_patterns"]
-                parallel_nodes = ["summarize", "key_moments", "analyze_style", "coaching_plan", "challenge_eval"]
+                parallel_nodes = ["summarize", "key_moments", "analyze_style", "coaching_plan", "challenge_eval", "summary_diagnosis"]
                 
                 # 첫 번째 노드를 running으로 표시
                 if sequential_nodes:
@@ -115,7 +115,7 @@ def _run_analysis_with_status(execution_id: str, state: Dict[str, Any]):
                 # 모든 노드를 완료로 표시
                 for node_name in ["preprocess", "translate_ko_to_en", "label_utterances", 
                                  "detect_patterns", "summarize", "key_moments", "analyze_style",
-                                 "coaching_plan", "challenge_eval", "aggregate_result"]:
+                                 "coaching_plan", "challenge_eval", "summary_diagnosis", "aggregate_result"]:
                     update_node_status(execution_id, node_name, NodeStatus.COMPLETED)
             except Exception as invoke_error:
                 update_execution_status(execution_id, ExecutionStatus.FAILED, error=str(invoke_error))
@@ -165,14 +165,22 @@ async def get_status(execution_id: str):
     if not status:
         raise HTTPException(status_code=404, detail="Execution not found")
     
-    return status
+    # nodes 필드 제거 (상세 노드 정보는 불필요)
+    response = {k: v for k, v in status.items() if k != "nodes"}
+    return response
 
 
 @app.get("/executions")
 async def list_executions():
     """모든 실행 목록 조회"""
+    all_executions = get_all_executions()
+    # nodes 필드 제거
+    executions_list = [
+        {k: v for k, v in exec_data.items() if k != "nodes"}
+        for exec_data in all_executions.values()
+    ]
     return {
-        "executions": list(get_all_executions().values())
+        "executions": executions_list
     }
 
 

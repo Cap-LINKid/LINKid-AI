@@ -30,10 +30,6 @@ _COMMENT_PROMPT = ChatPromptTemplate.from_messages([
 ])
 
 
-def _generate_session_id() -> str:
-    """세션 ID 생성 (conv-YYYY-MM-DD-0001 형식)"""
-    today = datetime.now().strftime("%Y-%m-%d")
-    return f"conv-{today}-0001"
 
 
 def _extract_metrics_from_style_analysis(style_analysis: Dict[str, Any]) -> list:
@@ -190,21 +186,18 @@ def summarize_node(state: Dict[str, Any]) -> Dict[str, Any]:
     challenge_eval = state.get("challenge_eval") or {}
     challenge_spec = state.get("challenge_spec") or {}
     key_moments = state.get("key_moments") or {}
+    meta = state.get("meta") or {}
     
     if not utterances_labeled:
         return {
             "summary": {
                 "analysis_session": {
-                    "session_id": _generate_session_id(),
                     "comment": "대화 내용이 없어 분석할 수 없습니다."
                 },
                 "current_metrics": [],
                 "challenge_evaluation": {}
             }
         }
-    
-    # 세션 ID 생성
-    session_id = _generate_session_id()
     
     # 코멘트 생성 (LLM)
     llm = get_llm(mini=False)
@@ -240,7 +233,6 @@ def summarize_node(state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "summary": {
             "analysis_session": {
-                "session_id": session_id,
                 "comment": comment
             },
             "current_metrics": current_metrics,

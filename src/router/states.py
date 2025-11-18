@@ -21,6 +21,7 @@ class RouterState(TypedDict, total=False):
     style_analysis: Dict[str, Any]  # ⑦ analyze_style 결과
     coaching_plan: Dict[str, Any]  # ⑧ coaching_plan 결과
     challenge_eval: Dict[str, Any]  # ⑨ challenge_eval 결과
+    summary_diagnosis: Dict[str, Any]  # summary_diagnosis 결과 - {stage_name, positive_ratio, negative_ratio}
     
     # 최종 결과
     result: Dict[str, Any]  # ⑩ aggregate_result 최종 JSON

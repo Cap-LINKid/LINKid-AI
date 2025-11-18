@@ -14,6 +14,7 @@ from src.expert.key_moments_agent import key_moments_node
 from src.expert.style_agent import analyze_style_node
 from src.expert.coaching_agent import coaching_plan_node
 from src.expert.challenge_agent import challenge_eval_node
+from src.expert.summary_diagnosis_agent import summary_diagnosis_node
 from src.expert.aggregate_agent import aggregate_result_node
 
 # 기존 에이전트들 (하위 호환성)
@@ -42,6 +43,7 @@ def build_question_router():
     graph.add_node("analyze_style", analyze_style_node)
     graph.add_node("coaching_plan", coaching_plan_node)
     graph.add_node("challenge_eval", challenge_eval_node)
+    graph.add_node("summary_diagnosis", summary_diagnosis_node)
 
     # 최종 집계
     graph.add_node("aggregate_result", aggregate_result_node)
@@ -58,6 +60,7 @@ def build_question_router():
     graph.add_edge("detect_patterns", "analyze_style")
     graph.add_edge("detect_patterns", "coaching_plan")
     graph.add_edge("detect_patterns", "challenge_eval")
+    graph.add_edge("detect_patterns", "summary_diagnosis")
 
     # 모든 병렬 분석이 완료되면 집계
     graph.add_edge("summarize", "aggregate_result")
@@ -65,6 +68,7 @@ def build_question_router():
     graph.add_edge("analyze_style", "aggregate_result")
     graph.add_edge("coaching_plan", "aggregate_result")
     graph.add_edge("challenge_eval", "aggregate_result")
+    graph.add_edge("summary_diagnosis", "aggregate_result")
 
     graph.add_edge("aggregate_result", END)
 
