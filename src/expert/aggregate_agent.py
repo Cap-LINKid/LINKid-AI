@@ -3,6 +3,51 @@ from __future__ import annotations
 from typing import Dict, Any
 
 
+def _calculate_pi_ndi_scores(utterances_labeled: list) -> Dict[str, int]:
+    """
+    DPICS 라벨링 결과를 기반으로 PI score와 NDI score 계산
+    부모 발화와 아이 발화 모두 포함하여 계산
+    
+    PI (Positive Interaction) score: 긍정적 상호작용 비율
+    - PR (Praise) + RD (Reflection) 비율을 0-100 점수로 변환
+    
+    NDI (Negative Directiveness Index) score: 부정적 지시성 지수
+    - NEG (Negative) + CMD (Command) 비율을 0-100 점수로 변환
+    
+    Args:
+        utterances_labeled: 라벨링된 발화 리스트 (부모 + 아이 발화 모두 포함)
+        
+    Returns:
+        {"pi_score": int, "ndi_score": int}
+    """
+    if not utterances_labeled:
+        return {"pi_score": 50, "ndi_score": 50}
+    
+    # 모든 발화 사용 (부모 + 아이)
+    total = len(utterances_labeled)
+    
+    # PI score 계산: PR (Praise) + RD (Reflection) 비율
+    positive_count = sum(
+        1 for utt in utterances_labeled 
+        if utt.get("label") in ["PR", "RD"]
+    )
+    pi_ratio = positive_count / total if total > 0 else 0.0
+    pi_score = int(round(pi_ratio * 100))
+    
+    # NDI score 계산: NEG (Negative) + CMD (Command) 비율
+    negative_count = sum(
+        1 for utt in utterances_labeled 
+        if utt.get("label") in ["NEG", "CMD"]
+    )
+    ndi_ratio = negative_count / total if total > 0 else 0.0
+    ndi_score = int(round(ndi_ratio * 100))
+    
+    return {
+        "pi_score": min(100, max(0, pi_score)),  # 0-100 범위로 제한
+        "ndi_score": min(100, max(0, ndi_score))  # 0-100 범위로 제한
+    }
+
+
 def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     ⑩ aggregate_result: 최종 JSON 집계
@@ -82,6 +127,9 @@ def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(summary_diagnosis, dict) and "summary_diagnosis" in summary_diagnosis:
         actual_summary_diagnosis = summary_diagnosis["summary_diagnosis"]
     
+    # PI/NDI 점수 계산
+    scores = _calculate_pi_ndi_scores(utterances_labeled)
+    
     # 요청된 구조로 result 구성
     result = {
         "summary_diagnosis": actual_summary_diagnosis,
@@ -93,6 +141,7 @@ def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "coaching_plan": actual_coaching_plan
         },
         "growth_report": summary,
+        "scores": scores,
     }
     
     # LangGraph UI와 API 모두에서 동일한 형식으로 반환

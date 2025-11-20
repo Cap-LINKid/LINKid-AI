@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime, timedelta
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
+from src.utils.vector_store import search_expert_advice
 
 
 _COACHING_PROMPT = ChatPromptTemplate.from_messages([
@@ -30,7 +32,7 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "  ]\n"
             "}}\n"
             "The challenge should focus on the most frequent pattern. "
-            "Actions should be specific and actionable. "
+            "Actions should be specific and actionable, and should incorporate the expert advice provided. "
             "QA tips should address common questions about the pattern. "
             "All text in Korean. No extra text, only JSON."
         ),
@@ -42,10 +44,54 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "스타일 분석:\n{style_analysis}\n\n"
             "탐지된 패턴:\n{patterns}\n\n"
             "핵심 순간:\n{key_moments}\n\n"
-            "위 정보를 바탕으로 코칭 계획을 JSON 형식으로 작성해주세요."
+            "{expert_advice_section}\n\n"
+            "위 정보를 바탕으로 코칭 계획을 JSON 형식으로 작성해주세요. "
+            "전문가 조언을 참고하여 챌린지의 actions와 goal을 구체적으로 작성하세요."
         ),
     ),
 ])
+
+
+def _find_most_frequent_pattern(patterns: List[Dict[str, Any]], key_moments: Dict[str, Any]) -> Optional[str]:
+    """
+    가장 빈번한 패턴 찾기
+    """
+    pattern_counts = {}
+    
+    # key_moments의 pattern_examples에서 패턴별 발생 횟수 계산
+    if isinstance(key_moments, dict):
+        pattern_examples = key_moments.get("pattern_examples", [])
+        for p in pattern_examples:
+            pattern_name = p.get("pattern_name", "")
+            occurrences = p.get("occurrences", 1)
+            if pattern_name:
+                pattern_counts[pattern_name] = pattern_counts.get(pattern_name, 0) + occurrences
+    
+    # patterns에서도 계산
+    for p in patterns:
+        pattern_name = p.get("pattern_name", "")
+        if pattern_name:
+            pattern_counts[pattern_name] = pattern_counts.get(pattern_name, 0) + 1
+    
+    if not pattern_counts:
+        return None
+    
+    # 가장 빈번한 패턴 반환
+    return max(pattern_counts.items(), key=lambda x: x[1])[0]
+
+
+def _build_challenge_query(patterns: List[Dict[str, Any]], key_moments: Dict[str, Any]) -> str:
+    """
+    챌린지 생성 시 검색 쿼리 생성
+    """
+    most_frequent = _find_most_frequent_pattern(patterns, key_moments)
+    
+    if most_frequent:
+        query = f"{most_frequent} 패턴 개선 챌린지 가이드"
+    else:
+        query = "부모-자녀 상호작용 개선 챌린지 가이드"
+    
+    return query
 
 
 def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -109,12 +155,62 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     else:
         key_moments_str = str(key_moments) if key_moments else "(없음)"
     
+    # VectorDB 검색 (챌린지 생성용)
+    expert_advice_section = ""
+    expert_references_list = []
+    use_vector_db = os.getenv("USE_VECTOR_DB", "false").lower() == "true"
+    
+    if use_vector_db:
+        try:
+            # 가장 빈번한 패턴 찾기
+            most_frequent_pattern = _find_most_frequent_pattern(patterns, key_moments)
+            
+            # 검색 쿼리 생성
+            query = _build_challenge_query(patterns, key_moments)
+            
+            # VectorDB 검색
+            expert_advice = search_expert_advice(
+                query=query,
+                top_k=int(os.getenv("VECTOR_SEARCH_TOP_K_CHALLENGE", "5")),
+                threshold=float(os.getenv("VECTOR_SEARCH_THRESHOLD", "0.3")),  # 기본값 0.3으로 변경
+                filters={
+                    "advice_type": ["challenge_guide", "pattern_advice"],
+                    "pattern_names": [most_frequent_pattern] if most_frequent_pattern else None
+                }
+            )
+            
+            if expert_advice:
+                # 프롬프트용 전문가 조언 섹션
+                expert_advice_section = "전문가 조언 및 챌린지 가이드:\n" + "\n".join([
+                    f"[{advice['advice_type']}] {advice['title']}\n{advice['content'][:300]}..."
+                    for advice in expert_advice
+                ])
+                
+                # 레퍼런스 리스트 구성
+                expert_references_list = [
+                    {
+                        "title": advice["title"],
+                        "source": advice["source"],
+                        "author": advice.get("author", ""),
+                        "type": advice["advice_type"]
+                    }
+                    for advice in expert_advice
+                ]
+        except Exception as e:
+            print(f"VectorDB 검색 오류 (coaching_plan): {e}")
+            expert_advice_section = ""
+            expert_references_list = []
+    
+    if not expert_advice_section:
+        expert_advice_section = ""
+    
     try:
         res = (_COACHING_PROMPT | llm).invoke({
             "summary": summary,
             "style_analysis": style_str,
             "patterns": patterns_str,
             "key_moments": key_moments_str,
+            "expert_advice_section": expert_advice_section,
         })
         content = getattr(res, "content", "") or str(res)
         
@@ -130,6 +226,10 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         "start": _get_today_str(),
                         "end": _get_date_after_days(7)
                     }
+                    
+                    # 레퍼런스 정보 추가
+                    if expert_references_list:
+                        coaching_data["challenge"]["references"] = expert_references_list
                 
                 return {"coaching_plan": coaching_data}
     except Exception as e:
