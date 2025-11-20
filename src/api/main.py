@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from src.api.status import (
     create_execution, 
@@ -22,13 +24,40 @@ app = FastAPI(
     version="1.0.0"
 )
 
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """요청 검증 에러 핸들러 - 더 명확한 에러 메시지 제공"""
+    errors = []
+    for error in exc.errors():
+        field_path = " -> ".join(str(loc) for loc in error["loc"])
+        errors.append({
+            "field": field_path,
+            "message": error["msg"],
+            "type": error["type"]
+        })
+    
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": "요청 데이터 검증 실패",
+            "errors": errors
+        }
+    )
+
 # 그래프 인스턴스
 graph = build_question_router()
 
 
 # Request/Response 모델
+class UtteranceItem(BaseModel):
+    speaker: str = Field(..., description="발화자 (예: 'A', 'B', 'parent', 'child')")
+    text: str = Field(..., description="발화 내용")
+    timestamp: Optional[int] = Field(None, description="타임스탬프 (밀리초, 선택적)")
+
+
 class DialogueRequest(BaseModel):
-    utterances_ko: List[str]
+    utterances_ko: List[UtteranceItem] = Field(..., description="한국어 대화 발화 리스트")
     challenge_spec: Optional[Dict[str, Any]] = None  # 하위 호환성: 단일 챌린지
     challenge_specs: Optional[List[Dict[str, Any]]] = None  # 여러 챌린지
     meta: Optional[Dict[str, Any]] = None
@@ -143,8 +172,18 @@ async def analyze_dialogue(request: DialogueRequest, background_tasks: Backgroun
         else:
             challenge_specs = []
     
+    # Pydantic 모델을 딕셔너리로 변환
+    utterances_ko_dict = [
+        {
+            "speaker": utt.speaker,
+            "text": utt.text,
+            **({"timestamp": utt.timestamp} if utt.timestamp is not None else {})
+        }
+        for utt in request.utterances_ko
+    ]
+    
     state = {
-        "utterances_ko": request.utterances_ko,
+        "utterances_ko": utterances_ko_dict,
         "challenge_specs": challenge_specs,
         "challenge_spec": request.challenge_spec or {},  # 하위 호환성 유지
         "meta": request.meta or {}
