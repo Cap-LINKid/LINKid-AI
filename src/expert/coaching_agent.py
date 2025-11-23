@@ -24,7 +24,8 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             '  "challenge": {{\n'
             '    "title": "챌린지 제목 (패턴명 + 횟수 + 도전)",\n'
             '    "goal": "챌린지 목표 (1문장)",\n'
-            '    "actions": ["액션1", "액션2", "액션3"]\n'
+            '    "actions": ["액션1", "액션2", "액션3"],\n'
+            '    "rationale": "챌린지 생성 이유 (패턴 발생 상황, 개선 필요성, 전문가 조언 참고)"\n'
             "  }},\n"
             '  "qa_tips": [\n'
             '    {{"question": "질문1", "answer": "답변1"}},\n'
@@ -33,6 +34,7 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "}}\n"
             "The challenge should focus on the most frequent pattern. "
             "Actions should be specific and actionable, and should incorporate the expert advice provided. "
+            "The rationale field should explain why this challenge was created, including the pattern occurrence context and references to expert advice (e.g., '참고: [제목] ([저자], [출처])'). "
             "QA tips should address common questions about the pattern. "
             "All text in Korean. No extra text, only JSON."
         ),
@@ -115,7 +117,8 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         "start": _get_today_str(),
                         "end": _get_date_after_days(7)
                     },
-                    "actions": []
+                    "actions": [],
+                    "rationale": ""
                 },
                 "qa_tips": []
             }
@@ -158,7 +161,9 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # VectorDB 검색 (챌린지 생성용)
     expert_advice_section = ""
     expert_references_list = []
-    use_vector_db = os.getenv("USE_VECTOR_DB", "false").lower() == "true"
+    # USE_VECTOR_DB가 명시적으로 false가 아니면 검색 시도 (기본값: true)
+    use_vector_db_env = os.getenv("USE_VECTOR_DB", "true").lower()
+    use_vector_db = use_vector_db_env != "false"
     
     if use_vector_db:
         try:
@@ -227,9 +232,49 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         "end": _get_date_after_days(7)
                     }
                     
-                    # 레퍼런스 정보 추가
+                    # rationale 필드에 레퍼런스 정보 포함하여 생성
                     if expert_references_list:
-                        coaching_data["challenge"]["references"] = expert_references_list
+                        # 기존 rationale이 있으면 유지, 없으면 생성
+                        existing_rationale = coaching_data["challenge"].get("rationale", "")
+                        
+                        # 레퍼런스 텍스트 생성
+                        reference_texts = []
+                        for ref in expert_references_list:
+                            author = ref.get("author", "")
+                            source = ref.get("source", "")
+                            title = ref.get("title", "")
+                            
+                            # "참고: [제목] ([저자], [출처])" 형식
+                            if author and source:
+                                ref_text = f"참고: '{title}' ({author}, {source})"
+                            elif author:
+                                ref_text = f"참고: '{title}' ({author})"
+                            elif source:
+                                ref_text = f"참고: '{title}' ({source})"
+                            else:
+                                ref_text = f"참고: '{title}'"
+                            
+                            reference_texts.append(ref_text)
+                        
+                        # rationale에 레퍼런스 추가
+                        if reference_texts:
+                            references_section = " " + " ".join(reference_texts)
+                            if existing_rationale:
+                                # 기존 rationale 끝에 레퍼런스 추가
+                                coaching_data["challenge"]["rationale"] = existing_rationale + references_section
+                            else:
+                                # rationale이 없으면 패턴 정보와 함께 생성
+                                most_frequent_pattern = _find_most_frequent_pattern(patterns, key_moments)
+                                pattern_info = f"이 챌린지는 '{most_frequent_pattern}' 패턴이 감지되어 생성되었습니다." if most_frequent_pattern else "이 챌린지는 분석 결과를 바탕으로 생성되었습니다."
+                                coaching_data["challenge"]["rationale"] = pattern_info + references_section
+                    else:
+                        # 레퍼런스가 없어도 rationale이 없으면 기본 텍스트 생성
+                        if "rationale" not in coaching_data["challenge"] or not coaching_data["challenge"].get("rationale"):
+                            most_frequent_pattern = _find_most_frequent_pattern(patterns, key_moments)
+                            if most_frequent_pattern:
+                                coaching_data["challenge"]["rationale"] = f"이 챌린지는 '{most_frequent_pattern}' 패턴이 감지되어 생성되었습니다."
+                            else:
+                                coaching_data["challenge"]["rationale"] = "이 챌린지는 분석 결과를 바탕으로 생성되었습니다."
                 
                 return {"coaching_plan": coaching_data}
     except Exception as e:
@@ -247,7 +292,8 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                     "start": _get_today_str(),
                     "end": _get_date_after_days(7)
                 },
-                "actions": []
+                "actions": [],
+                "rationale": ""
             },
             "qa_tips": []
         }

@@ -63,8 +63,9 @@ _KEY_MOMENTS_PROMPT = ChatPromptTemplate.from_messages([
             "3. 'pattern_examples': 감지된 패턴의 구체적인 대화 발췌 예시들\n\n"
             "각 순간에 대해 발화에서 실제 대화(발화자와 한국어 원문 텍스트)를 포함하세요. "
             "대화는 핵심 순간을 구성하는 연속된 발화들의 리스트여야 합니다. "
-            "'needs_improvement' 순간의 경우, 'better_response' 제안을 제공하세요. "
-            "전문가 조언이 제공된 경우, 이를 참고하여 더 나은 응답을 생성하세요. "
+            "'needs_improvement' 순간의 경우, 'reason'과 'better_response'를 제공하세요. "
+            "전문가 조언이 제공된 경우, 반드시 해당 조언을 참고하여 'reason' 설명과 'better_response' 제안을 생성하세요. "
+            "전문가 조언의 핵심 내용을 반영하여 더 정확하고 구체적인 이유 설명과 개선 방안을 제시하세요. "
             "'pattern_examples'의 경우, 패턴 이름, 발생 횟수, 문제 설명, 제안된 응답을 포함하세요. "
             "모든 설명과 응답은 한국어로 작성하세요."
         ),
@@ -89,14 +90,44 @@ def _build_needs_improvement_query(moment: Dict[str, Any]) -> str:
     pattern_hint = moment.get("pattern_hint", "")
     reason = moment.get("reason", "")
     
-    # 패턴 힌트가 있으면 우선 사용
+    # 패턴 힌트에서 패턴명만 추출 (콜론(:) 이전 부분만 사용)
     if pattern_hint:
-        query = f"{pattern_hint} 패턴 개선 방법"
+        # "명령과제시: 명령만 내림" -> "명령과제시"
+        pattern_name = pattern_hint.split(":")[0].strip() if ":" in pattern_hint else pattern_hint.strip()
+        query = f"{pattern_name} 패턴 개선 방법"
     else:
         # reason에서 키워드 추출
         query = f"{reason} 개선 방법"
     
     return query
+
+
+def _extract_pattern_name(pattern_hint: str) -> Optional[str]:
+    """
+    pattern_hint에서 실제 패턴명만 추출
+    예: "명령과제시: 명령만 내림" -> "명령과제시"
+    """
+    if not pattern_hint:
+        return None
+    
+    # 콜론(:) 이전 부분만 추출
+    pattern_name = pattern_hint.split(":")[0].strip() if ":" in pattern_hint else pattern_hint.strip()
+    
+    # 알려진 패턴명 목록
+    known_patterns = [
+        "긍정기회놓치기",
+        "명령과제시",
+        "비판적반응",
+        "공감부족",
+        "반영부족"
+    ]
+    
+    # 정확히 일치하는 패턴명 찾기
+    for known in known_patterns:
+        if known in pattern_name or pattern_name in known:
+            return known
+    
+    return pattern_name
 
 
 def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -124,7 +155,9 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
     
     # VectorDB에서 전문가 조언 검색 (프롬프트에 포함)
     expert_advice_section = ""
-    use_vector_db = os.getenv("USE_VECTOR_DB", "false").lower() == "true"
+    # USE_VECTOR_DB가 명시적으로 false가 아니면 검색 시도 (기본값: true)
+    use_vector_db_env = os.getenv("USE_VECTOR_DB", "true").lower()
+    use_vector_db = use_vector_db_env != "false"
     
     if use_vector_db and patterns:
         try:
@@ -203,7 +236,9 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
             
             # needs_improvement 변환 (한국어 원문 사용) + VectorDB 검색
             needs_improvement_list = []
-            use_vector_db = os.getenv("USE_VECTOR_DB", "false").lower() == "true"
+            # USE_VECTOR_DB가 명시적으로 false가 아니면 검색 시도 (기본값: true)
+            use_vector_db_env = os.getenv("USE_VECTOR_DB", "true").lower()
+            use_vector_db = use_vector_db_env != "false"
             
             for moment in key_moments_content.needs_improvement:
                 dialogue_with_ko = []
@@ -231,13 +266,21 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 
                 # VectorDB 검색 (needs_improvement용)
                 expert_references = []
+                extracted_pattern = None
                 if use_vector_db:
                     try:
+                        # 패턴명 추출
+                        extracted_pattern = _extract_pattern_name(moment.pattern_hint) if moment.pattern_hint else None
+                        
+                        print(f"[VectorDB] needs_improvement 검색 시작 - pattern_hint: {moment.pattern_hint}, extracted: {extracted_pattern}")
+                        
                         moment_dict = {
-                            "pattern_hint": moment.pattern_hint,
+                            "pattern_hint": extracted_pattern or moment.pattern_hint,
                             "reason": moment.reason
                         }
                         query = _build_needs_improvement_query(moment_dict)
+                        
+                        print(f"[VectorDB] 검색 쿼리: {query}")
                         
                         # VectorDB 검색
                         expert_advice = search_expert_advice(
@@ -246,9 +289,11 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                             threshold=float(os.getenv("VECTOR_SEARCH_THRESHOLD", "0.3")),  # 기본값 0.3으로 변경
                             filters={
                                 "advice_type": ["pattern_advice", "coaching"],
-                                "pattern_names": [moment.pattern_hint] if moment.pattern_hint else None
+                                "pattern_names": [extracted_pattern] if extracted_pattern else None
                             }
                         )
+                        
+                        print(f"[VectorDB] 검색 결과 개수: {len(expert_advice)}")
                         
                         # 레퍼런스 정보 구성
                         expert_references = [
@@ -261,16 +306,42 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                             }
                             for advice in expert_advice
                         ]
+                        
+                        if expert_references:
+                            print(f"[VectorDB] 검색 성공 - {len(expert_references)}개 레퍼런스 추가됨")
+                        else:
+                            print(f"[VectorDB] 검색 결과 없음 (threshold 미달 또는 필터 조건 불일치)")
                     except Exception as e:
-                        print(f"VectorDB 검색 오류 (needs_improvement): {e}")
+                        print(f"[VectorDB] 검색 오류 발생: {e}")
+                        import traceback
+                        traceback.print_exc()
                         expert_references = []
+                else:
+                    print(f"[VectorDB] 검색 비활성화됨 (USE_VECTOR_DB={use_vector_db_env})")
+                
+                # 레퍼런스 설명 생성 (출처와 작성자 나열)
+                reference_description = ""
+                if expert_references:
+                    # source와 author 필드에서 출처와 작성자 추출 (중복 제거)
+                    sources = list(set([ref.get("source", "") for ref in expert_references if ref.get("source")]))
+                    authors = list(set([ref.get("author", "") for ref in expert_references if ref.get("author")]))
+                    
+                    ref_parts = []
+                    if sources:
+                        ref_parts.extend(sources)
+                    if authors:
+                        ref_parts.extend(authors)
+                    
+                    if ref_parts:
+                        reference_description = ", ".join(ref_parts)
                 
                 needs_improvement_list.append({
                     "dialogue": dialogue_with_ko,
                     "reason": moment.reason,
                     "better_response": moment.better_response,
                     "pattern_hint": moment.pattern_hint,
-                    "expert_references": expert_references if expert_references else None
+                    "expert_references": expert_references if expert_references else [],  # None 대신 빈 배열
+                    "reference_description": reference_description
                 })
             
             # pattern_examples 변환 (한국어 원문 사용)
