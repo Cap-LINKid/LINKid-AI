@@ -58,9 +58,16 @@ _KEY_MOMENTS_PROMPT = ChatPromptTemplate.from_messages([
         (
             "당신은 부모-자녀 상호작용에서 핵심 순간을 식별하는 전문가입니다. "
             "핵심 순간을 추출하여 세 가지 카테고리로 분류하세요:\n"
-            "1. 'positive': 부모가 잘 대응한 순간들 (감정 코칭, 공감, 인정 등)\n"
-            "2. 'needs_improvement': 부모의 응답을 개선할 수 있는 순간들\n"
+            "1. 'positive': 부모가 잘 대응한 순간들 (감정 코칭, 공감, 인정, 질문형 발화, 선택권 제공 등)\n"
+            "2. 'needs_improvement': 부모의 응답을 명확히 개선할 수 있는 순간들 (명령형, 비판적, 공감 부족 등)\n"
             "3. 'pattern_examples': 감지된 패턴의 구체적인 대화 발췌 예시들\n\n"
+            "중요한 판단 기준 (반드시 준수):\n"
+            "- 질문형 발화('~할까?', '~어떻게 생각해?', '~하고 싶어?', '~맡아도 될까?')는 절대 'needs_improvement'에 포함하지 마세요. 'positive'로 분류하세요.\n"
+            "- 선택권을 제공하는 발화('~할래?', '~어떤 게 좋을까?')는 절대 'needs_improvement'에 포함하지 마세요. 'positive'로 분류하세요.\n"
+            "- 자녀의 의견을 물어보는 발화는 절대 'needs_improvement'에 포함하지 마세요. 'positive'로 분류하세요.\n"
+            "- '명령과제시' 패턴이 감지되었더라도, 실제 발화가 질문형이면 'needs_improvement'에 포함하지 마세요.\n"
+            "- 'needs_improvement'는 명확히 문제가 있는 경우만 포함하세요 (예: 직접적인 명령형('해라', '해야 해'), 비판적 발화, 공감 부족).\n"
+            "- 애매한 경우는 반드시 'positive'로 분류하거나 제외하세요.\n\n"
             "각 순간에 대해 발화에서 실제 대화(발화자와 한국어 원문 텍스트)를 포함하세요. "
             "대화는 핵심 순간을 구성하는 연속된 발화들의 리스트여야 합니다. "
             "'needs_improvement' 순간의 경우, 'reason'과 'better_response'를 제공하세요. "
@@ -241,6 +248,41 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
             use_vector_db = use_vector_db_env != "false"
             
             for moment in key_moments_content.needs_improvement:
+                # needs_improvement의 reason과 dialogue를 확인하여 부적절한 분석 필터링
+                reason = moment.reason or ""
+                dialogue_text = " ".join([utt.text for utt in moment.dialogue])
+                
+                # 질문형 발화나 선택권을 주는 발화는 needs_improvement에서 제외
+                question_indicators = [
+                    "할까", "할래", "할까요", "할래요",
+                    "어떻게 생각해", "어떻게 생각하니", "어떻게 생각해요",
+                    "하고 싶어", "하고 싶니", "하고 싶어요",
+                    "어떤", "어느", "선택", "원해", "원하니", "원해요",
+                    "맡아도 될까", "해도 될까", "해도 될래",
+                    "괜찮을까", "괜찮을래", "좋을까", "좋을래"
+                ]
+                
+                # dialogue에 질문형 지시어가 포함되어 있으면 제외
+                if any(indicator in dialogue_text for indicator in question_indicators):
+                    print(f"[Key Moments] 질문형 발화를 needs_improvement에서 제외: {dialogue_text[:50]}...")
+                    continue
+                
+                # reason이 잘못된 분석인 경우도 제외 (예: "선택권을 주지 않고"라고 했는데 실제로는 질문형)
+                incorrect_reason_indicators = ["선택권을 주지 않고", "의견을 반영하지", "선택할 수 있는 기회를 주지"]
+                if any(indicator in reason for indicator in incorrect_reason_indicators):
+                    # dialogue가 실제로 질문형이면 제외
+                    if any(indicator in dialogue_text for indicator in question_indicators):
+                        print(f"[Key Moments] 잘못된 reason 분석을 needs_improvement에서 제외: {reason[:50]}...")
+                        continue
+                
+                # pattern_hint가 "명령과제시"인데 실제로는 질문형인 경우도 제외
+                pattern_hint = moment.pattern_hint or ""
+                if "명령과제시" in pattern_hint or "명령" in pattern_hint:
+                    # 실제 발화가 질문형이면 제외
+                    if any(indicator in dialogue_text for indicator in question_indicators):
+                        print(f"[Key Moments] '명령과제시' 패턴이지만 질문형 발화라서 needs_improvement에서 제외: {dialogue_text[:50]}...")
+                        continue
+                
                 dialogue_with_ko = []
                 for utt in moment.dialogue:
                     matched_text = utt.text

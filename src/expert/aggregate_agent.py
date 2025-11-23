@@ -60,6 +60,7 @@ def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
     challenge_spec = state.get("challenge_spec", {})
     challenge_specs = state.get("challenge_specs", [])
     utterances_labeled = state.get("utterances_labeled", [])
+    utterances_ko = state.get("utterances_ko", [])
     key_moments = state.get("key_moments", {})
     patterns = state.get("patterns", [])
     summary_diagnosis = state.get("summary_diagnosis", {})
@@ -88,22 +89,32 @@ def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
         
         # challenge_evaluation 업데이트 (여러 챌린지 지원)
         if not summary.get("challenge_evaluations"):
-            from src.expert.summarize_agent import _format_challenge_evaluation
+            from src.expert.challenge_agent import _format_challenge_evaluation
             challenge_evaluations = []
             
             # 여러 챌린지 처리
             if challenge_evals and challenge_specs:
                 for challenge_eval_item, challenge_spec_item in zip(challenge_evals, challenge_specs):
-                    evaluation = _format_challenge_evaluation(
-                        challenge_eval_item, challenge_spec_item, utterances_labeled, key_moments
-                    )
+                    # challenge_eval에 이미 challenge_evaluation이 포함되어 있으면 사용
+                    if challenge_eval_item.get("challenge_evaluation"):
+                        evaluation = challenge_eval_item["challenge_evaluation"]
+                    else:
+                        # 없으면 생성
+                        evaluation = _format_challenge_evaluation(
+                            challenge_eval_item, challenge_spec_item, utterances_labeled, key_moments, utterances_ko
+                        )
                     if evaluation:
                         challenge_evaluations.append(evaluation)
             # 하위 호환성: 단일 챌린지 처리
             elif challenge_eval and challenge_spec:
-                challenge_evaluation = _format_challenge_evaluation(
-                    challenge_eval, challenge_spec, utterances_labeled, key_moments
-                )
+                # challenge_eval에 이미 challenge_evaluation이 포함되어 있으면 사용
+                if challenge_eval.get("challenge_evaluation"):
+                    challenge_evaluation = challenge_eval["challenge_evaluation"]
+                else:
+                    # 없으면 생성
+                    challenge_evaluation = _format_challenge_evaluation(
+                        challenge_eval, challenge_spec, utterances_labeled, key_moments, utterances_ko
+                    )
                 if challenge_evaluation:
                     challenge_evaluations.append(challenge_evaluation)
             
