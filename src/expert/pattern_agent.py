@@ -62,7 +62,14 @@ _PATTERN_PROMPT = ChatPromptTemplate.from_messages([
             "You are an expert in analyzing parent-child interaction patterns. "
             "Detect specific interaction patterns from labeled utterances. "
             f"Common patterns include: {_build_pattern_list_for_prompt()}. "
-            "Return ONLY a JSON array of objects with: {pattern_name, description, utterance_indices, severity}. "
+            "\nDPICS label meanings:\n"
+            "- RF/RD: Reflective listening (반영적 경청) - ALWAYS positive, shows understanding and empathy\n"
+            "- PR: Praise (구체적 칭찬) - positive, specific praise\n"
+            "- BD: Behavior description (행동 묘사) - positive, neutral description of behavior\n"
+            "- NEG: Negative response (비판적 반응) - negative, critical response\n"
+            "- Q: Question (질문) - context dependent\n"
+            "- CMD/IND: Command/Instruction - can be negative if excessive\n"
+            "\nReturn ONLY a JSON array of objects with: {{pattern_name, description, utterance_indices, severity}}. "
             "severity: 'low', 'medium', 'high'. "
             "pattern_name should match one of the Korean pattern names from the list above. "
             "No extra text."
@@ -87,9 +94,12 @@ _PATTERN_VALIDATION_PROMPT = ChatPromptTemplate.from_messages([
             "- '행동 묘사' (BD) should NOT include negative, critical, or judgmental statements\n"
             "- '구체적 칭찬' (PR) should NOT include sarcasm, criticism, or negative comments\n"
             "- '반영적 경청' (RF/RD) should NOT include dismissive or invalidating responses\n"
-            "- Negative patterns like '비판적 반응' should be correctly identified even if labeled as positive\n"
+            "- IMPORTANT: RF/RD labels indicate reflective listening and are ALWAYS positive patterns. "
+            "Do NOT reclassify RF/RD labeled utterances as negative patterns like '비판적 반응'.\n"
+            "- Only reclassify as negative if the utterance clearly contains criticism, sarcasm, or invalidation "
+            "AND the label is clearly wrong (e.g., PR labeled but contains sarcasm)\n"
             "Return ONLY a JSON array with validation results. "
-            "Each object should have: {pattern_index, is_valid, reason, corrected_pattern_name (if invalid)}. "
+            "Each object should have: {{pattern_index, is_valid, reason, corrected_pattern_name (if invalid)}}. "
             "is_valid: true if the pattern is correctly identified, false otherwise. "
             "If invalid, provide corrected_pattern_name or null if it's not a pattern at all. "
             "No extra text."
@@ -521,9 +531,9 @@ def detect_patterns_node(state: Dict[str, Any]) -> Dict[str, Any]:
     try:
         llm = get_llm(mini=True)
         
-        # 발화를 포맷팅
+        # 발화를 포맷팅 (라벨 정보 명시)
         utterances_str = "\n".join([
-            f"{i}. [{utt.get('speaker')}] [{utt.get('label')}] {utt.get('text')}"
+            f"{i}. [{utt.get('speaker')}] [Label: {utt.get('label')}] {utt.get('text')}"
             for i, utt in enumerate(utterances_labeled)
         ])
         
@@ -551,19 +561,50 @@ def detect_patterns_node(state: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         print(f"LLM pattern detection error: {e}")
     
-    # 중복 제거 (패턴명과 발화 인덱스 기반)
-    seen = set()
-    unique_patterns = []
+    # 규칙 기반으로 탐지된 긍정 패턴 분리 (검증에서 보호)
+    rule_based_positive = []
+    rule_based_positive_indices = set()
+    other_patterns = []
+    
     for p in patterns:
+        # 규칙 기반 긍정 패턴인지 확인
+        is_rule_based_positive = (
+            p.get("pattern_type") == "positive" and
+            any(
+                p.get("pattern_name") == pos_p.get("name")
+                for pos_p in _PATTERN_DEFINITIONS.get("positive_patterns", [])
+            )
+        )
+        
+        if is_rule_based_positive:
+            rule_based_positive.append(p)
+            rule_based_positive_indices.update(p.get("utterance_indices", []))
+        else:
+            other_patterns.append(p)
+    
+    # 중복 제거 (패턴명과 발화 인덱스 기반)
+    # 규칙 기반 긍정 패턴과 겹치는 LLM 패턴 제거
+    seen = set()
+    unique_other_patterns = []
+    for p in other_patterns:
         # 패턴명과 관련 발화 인덱스로 중복 판단
         indices = tuple(sorted(p.get("utterance_indices", [])))
         key = (p.get("pattern_name"), indices)
+        
+        # 규칙 기반 긍정 패턴과 발화 인덱스가 겹치면 제외 (규칙 기반 우선)
+        p_indices = set(p.get("utterance_indices", []))
+        if p_indices.intersection(rule_based_positive_indices):
+            continue
+        
         if key not in seen:
             seen.add(key)
-            unique_patterns.append(p)
+            unique_other_patterns.append(p)
     
-    # LLM 기반 패턴 검증 (잘못 탐지된 패턴 필터링)
-    validated_patterns = _validate_patterns_with_llm(unique_patterns, utterances_labeled)
+    # LLM 기반 패턴 검증 (규칙 기반 긍정 패턴 제외하고 검증)
+    validated_other_patterns = _validate_patterns_with_llm(unique_other_patterns, utterances_labeled)
     
-    return {"patterns": validated_patterns}
+    # 규칙 기반 긍정 패턴 + 검증된 다른 패턴 합치기
+    final_patterns = rule_based_positive + validated_other_patterns
+    
+    return {"patterns": final_patterns}
 

@@ -15,7 +15,7 @@ _CHALLENGE_PROMPT = ChatPromptTemplate.from_messages([
         (
             "You are an expert evaluating parent-child interaction challenges. "
             "Evaluate whether the parent met the challenge criteria based on labeled utterances and patterns. "
-            "Return ONLY a JSON object with: {challenge_met, score, evidence, feedback, improvement_suggestions}. "
+            "Return ONLY a JSON object with: {{challenge_met, score, evidence, feedback, improvement_suggestions}}. "
             "challenge_met: boolean, score: 0-100, evidence: list of specific examples. No extra text."
         ),
     ),

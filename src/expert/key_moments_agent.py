@@ -129,12 +129,19 @@ def _extract_pattern_name(pattern_hint: str) -> Optional[str]:
         "반영부족"
     ]
     
-    # 정확히 일치하는 패턴명 찾기
+    # 공백 제거하여 비교 (예: "비판적 반응" -> "비판적반응")
+    pattern_name_no_space = pattern_name.replace(" ", "")
+    
+    # 정확히 일치하는 패턴명 찾기 (공백 제거 버전으로도 비교)
     for known in known_patterns:
         if known in pattern_name or pattern_name in known:
             return known
+        # 공백 제거 버전으로도 비교
+        if known in pattern_name_no_space or pattern_name_no_space in known:
+            return known
     
-    return pattern_name
+    # 매칭되지 않으면 공백 제거 버전 반환
+    return pattern_name_no_space if pattern_name_no_space else pattern_name
 
 
 def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
