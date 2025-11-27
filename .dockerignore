@@ -1,0 +1,109 @@
+# ---------------------------
+# Python 기본 무시 항목
+# ---------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyc
+*.pyo
+
+# 환경 관련 (민감 정보)
+.env
+.env.*
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# 패키지 관리자
+pip-log.txt
+pip-delete-this-directory.txt
+poetry.lock
+*.egg-info/
+.eggs/
+*.egg
+MANIFEST
+
+# 빌드 및 배포
+build/
+dist/
+wheels/
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+.tox/
+.mypy_cache/
+.dmypy.json
+
+# 로그 & 캐시
+*.log
+logs/
+.cache/
+langchain_cache/
+
+# IDE 관련
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+*.sublime-*
+
+# OS 관련
+.DS_Store
+Thumbs.db
+*.tmp
+
+# ---------------------------
+# Git 관련
+# ---------------------------
+.git/
+.gitignore
+.gitattributes
+.gitmodules
+
+# ---------------------------
+# LangGraph / LangChain 관련 (런타임 파일)
+# ---------------------------
+langgraph_data/
+langgraph_checkpoints/
+.langgraph/
+langchain.db
+*.sqlite3
+executions.db
+.langgraph_api/
+
+# ---------------------------
+# 문서 및 테스트
+# ---------------------------
+*.md
+!README.md
+tests/
+test_*.py
+*_test.py
+scripts/test_*.py
+
+# ---------------------------
+# Docker 관련
+# ---------------------------
+.docker/
+docker-compose.override.yml
+Dockerfile*
+.dockerignore
+
+# ---------------------------
+# 기타 임시 파일
+# ---------------------------
+tmp/
+temp/
+outputs/
+artifacts/
+*.db-journal
+*.db-wal
+*.db-shm
+
+

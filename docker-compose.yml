@@ -1,0 +1,34 @@
+services:
+  langgraph-api:
+    # 로컬에서 빌드해서 linkd-ai 네임스페이스 이미지로 태깅
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: allday1234/linkd-ai:latest
+
+    # .env 파일 주입
+    env_file:
+      - .env
+
+    # 필요하면 개별 환경변수도 여기서 오버라이드 가능
+    # environment:
+    #   SOME_VALUE: "override"
+
+    ports:
+      - "8000:8000"
+
+    # 데이터/모델을 호스트와 공유하고 싶으면
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+
+    # 컨테이너가 죽으면 자동 재시작
+    restart: unless-stopped
+
+    # (선택) healthcheck – FastAPI가 살아있는지 확인
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]  # 라우트에 맞게 수정 가능
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
