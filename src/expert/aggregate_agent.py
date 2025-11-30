@@ -57,6 +57,7 @@ def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
     style_analysis = state.get("style_analysis", {})
     challenge_eval = state.get("challenge_eval", {})
     challenge_evals = state.get("challenge_evals", [])
+    challenge_evaluations = state.get("challenge_evaluations", [])
     challenge_spec = state.get("challenge_spec", {})
     challenge_specs = state.get("challenge_specs", [])
     utterances_labeled = state.get("utterances_labeled", [])
@@ -87,40 +88,11 @@ def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
         new_metrics = [m for m in style_metrics + pattern_metrics if m.get("key") not in metric_keys]
         summary["current_metrics"] = existing_metrics + new_metrics
         
-        # challenge_evaluation 업데이트 (여러 챌린지 지원)
-        if not summary.get("challenge_evaluations"):
-            from src.expert.challenge_agent import _format_challenge_evaluation
-            challenge_evaluations = []
-            
-            # 여러 챌린지 처리
-            if challenge_evals and challenge_specs:
-                for challenge_eval_item, challenge_spec_item in zip(challenge_evals, challenge_specs):
-                    # challenge_eval에 이미 challenge_evaluation이 포함되어 있으면 사용
-                    if challenge_eval_item.get("challenge_evaluation"):
-                        evaluation = challenge_eval_item["challenge_evaluation"]
-                    else:
-                        # 없으면 생성
-                        evaluation = _format_challenge_evaluation(
-                            challenge_eval_item, challenge_spec_item, utterances_labeled, key_moments, utterances_ko
-                        )
-                    if evaluation:
-                        challenge_evaluations.append(evaluation)
-            # 하위 호환성: 단일 챌린지 처리
-            elif challenge_eval and challenge_spec:
-                # challenge_eval에 이미 challenge_evaluation이 포함되어 있으면 사용
-                if challenge_eval.get("challenge_evaluation"):
-                    challenge_evaluation = challenge_eval["challenge_evaluation"]
-                else:
-                    # 없으면 생성
-                    challenge_evaluation = _format_challenge_evaluation(
-                        challenge_eval, challenge_spec, utterances_labeled, key_moments, utterances_ko
-                    )
-                if challenge_evaluation:
-                    challenge_evaluations.append(challenge_evaluation)
-            
+        # challenge_evaluation 업데이트 (새로운 방식: challenge_eval_node에서 직접 반환)
+        if not summary.get("challenge_evaluations") and challenge_evaluations:
+            summary["challenge_evaluations"] = challenge_evaluations
+            # 하위 호환성을 위해 첫 번째 챌린지도 challenge_evaluation으로 설정
             if challenge_evaluations:
-                summary["challenge_evaluations"] = challenge_evaluations
-                # 하위 호환성을 위해 첫 번째 챌린지도 challenge_evaluation으로 설정
                 summary["challenge_evaluation"] = challenge_evaluations[0]
     
     # coaching_plan에서 coaching_plan 추출 ({"coaching_plan": {...}} 형식일 수 있음)
@@ -155,7 +127,8 @@ def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
         "scores": scores,
     }
     
-    # LangGraph UI와 API 모두에서 동일한 형식으로 반환
-    # result 필드에 최종 결과를 넣고, state의 다른 필드들은 유지
+    # LangGraph UI에서 확인할 때 status API 응답과 동일한 형태로 보이도록
+    # 중간 노드 결과들을 모두 제거하고 result만 포함
+    # (status API는 nodes 필드만 제거하지만, LangGraph에서는 모든 중간 결과 제거)
     return {"result": result}
 

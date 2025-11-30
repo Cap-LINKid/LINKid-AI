@@ -446,37 +446,9 @@ def summarize_node(state: Dict[str, Any]) -> Dict[str, Any]:
     pattern_metrics = _extract_pattern_count_metrics(patterns, key_moments)
     current_metrics.extend(pattern_metrics)
     
-    # 챌린지 평가 포맷팅 (여러 챌린지 지원)
-    from src.expert.challenge_agent import _format_challenge_evaluation
-    challenge_evaluations = []
-    challenge_evals = state.get("challenge_evals") or []
-    challenge_specs = state.get("challenge_specs") or []
-    
-    # challenge_evals가 있으면 여러 챌린지 처리
-    if challenge_evals and challenge_specs:
-        for challenge_eval_item, challenge_spec_item in zip(challenge_evals, challenge_specs):
-            # challenge_eval에 이미 challenge_evaluation이 포함되어 있으면 사용
-            if challenge_eval_item.get("challenge_evaluation"):
-                evaluation = challenge_eval_item["challenge_evaluation"]
-            else:
-                # 없으면 생성
-                evaluation = _format_challenge_evaluation(
-                    challenge_eval_item, challenge_spec_item, utterances_labeled, key_moments, utterances_ko
-                )
-            if evaluation:
-                challenge_evaluations.append(evaluation)
-    # 하위 호환성: 단일 챌린지 처리
-    elif challenge_eval and challenge_spec:
-        # challenge_eval에 이미 challenge_evaluation이 포함되어 있으면 사용
-        if challenge_eval.get("challenge_evaluation"):
-            challenge_evaluation = challenge_eval["challenge_evaluation"]
-        else:
-            # 없으면 생성
-            challenge_evaluation = _format_challenge_evaluation(
-                challenge_eval, challenge_spec, utterances_labeled, key_moments, utterances_ko
-            )
-        if challenge_evaluation:
-            challenge_evaluations.append(challenge_evaluation)
+    # 챌린지 평가 가져오기 (challenge_eval_node에서 생성된 challenge_evaluations 사용)
+    # summarize_node는 challenge_eval_node와 병렬 실행되므로, challenge_evaluations가 없을 수 있음
+    challenge_evaluations = state.get("challenge_evaluations") or []
     
     # 단일 챌린지인 경우 challenge_evaluation으로도 반환 (하위 호환성)
     challenge_evaluation = challenge_evaluations[0] if challenge_evaluations else {}

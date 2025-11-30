@@ -23,6 +23,7 @@ class RouterState(TypedDict, total=False):
     coaching_plan: Dict[str, Any]  # ⑧ coaching_plan 결과
     challenge_eval: Dict[str, Any]  # ⑨ challenge_eval 결과 (단일, 하위 호환성)
     challenge_evals: List[Dict[str, Any]]  # ⑨ challenge_eval 결과 (여러 개)
+    challenge_evaluations: List[Dict[str, Any]]  # ⑨ challenge_eval 결과 (수행된 action들의 challenge_evaluation 리스트)
     summary_diagnosis: Dict[str, Any]  # summary_diagnosis 결과 - {stage_name, positive_ratio, negative_ratio}
     
     # 최종 결과

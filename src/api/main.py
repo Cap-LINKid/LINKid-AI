@@ -56,10 +56,22 @@ class UtteranceItem(BaseModel):
     timestamp: Optional[int] = Field(None, description="타임스탬프 (밀리초, 선택적)")
 
 
+class ActionItem(BaseModel):
+    action_id: str = Field(..., description="액션 ID")
+    content: str = Field(..., description="액션 내용")
+
+
+class ChallengeSpec(BaseModel):
+    challenge_id: Optional[str] = Field(None, description="챌린지 ID")
+    title: str = Field(..., description="챌린지 제목")
+    goal: str = Field(..., description="챌린지 목표")
+    actions: List[ActionItem] = Field(..., description="액션 리스트")
+
+
 class DialogueRequest(BaseModel):
     utterances_ko: List[UtteranceItem] = Field(..., description="한국어 대화 발화 리스트")
     challenge_spec: Optional[Dict[str, Any]] = None  # 하위 호환성: 단일 챌린지
-    challenge_specs: Optional[List[Dict[str, Any]]] = None  # 여러 챌린지
+    challenge_specs: Optional[List[ChallengeSpec]] = None  # 여러 챌린지 (새로운 형식)
     meta: Optional[Dict[str, Any]] = None
 
 
@@ -182,9 +194,25 @@ async def analyze_dialogue(request: DialogueRequest, background_tasks: Backgroun
         for utt in request.utterances_ko
     ]
     
+    # ChallengeSpec 모델을 딕셔너리로 변환
+    challenge_specs_dict = []
+    for spec in challenge_specs:
+        if isinstance(spec, ChallengeSpec):
+            # Pydantic 모델인 경우 딕셔너리로 변환
+            spec_dict = spec.model_dump()
+            # actions를 딕셔너리 리스트로 변환
+            spec_dict["actions"] = [
+                {"action_id": action.action_id, "content": action.content}
+                for action in spec.actions
+            ]
+            challenge_specs_dict.append(spec_dict)
+        else:
+            # 이미 딕셔너리인 경우 (하위 호환성)
+            challenge_specs_dict.append(spec)
+    
     state = {
         "utterances_ko": utterances_ko_dict,
-        "challenge_specs": challenge_specs,
+        "challenge_specs": challenge_specs_dict,
         "challenge_spec": request.challenge_spec or {},  # 하위 호환성 유지
         "meta": request.meta or {}
     }
