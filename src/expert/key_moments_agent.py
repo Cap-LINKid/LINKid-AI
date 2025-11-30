@@ -213,9 +213,11 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(res, KeyMomentsResponse):
             key_moments_content = res.key_moments
             
-            # positive 변환 (한국어 원문 사용)
+            # positive 변환 (한국어 원문 사용) - 하나만 선택
             positive_list = []
-            for moment in key_moments_content.positive:
+            if key_moments_content.positive:
+                # 첫 번째 positive moment만 사용
+                moment = key_moments_content.positive[0]
                 # dialogue에서 발화자와 텍스트를 매칭하여 한국어 원문 찾기
                 dialogue_with_ko = []
                 for utt in moment.dialogue:
@@ -249,12 +251,15 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 })
             
             # needs_improvement 변환 (한국어 원문 사용) + VectorDB 검색
+            # 첫 번째만 needs_improvement로 사용, 나머지는 pattern_examples에 추가
             needs_improvement_list = []
+            remaining_needs_improvement_moments = []  # needs_improvement에 포함되지 않은 나머지 moments
             # USE_VECTOR_DB가 명시적으로 false가 아니면 검색 시도 (기본값: true)
             use_vector_db_env = os.getenv("USE_VECTOR_DB", "true").lower()
             use_vector_db = use_vector_db_env != "false"
             
-            for moment in key_moments_content.needs_improvement:
+            # 모든 needs_improvement moments 처리
+            for idx, moment in enumerate(key_moments_content.needs_improvement):
                 # needs_improvement의 reason과 dialogue를 확인하여 부적절한 분석 필터링
                 reason = moment.reason or ""
                 dialogue_text = " ".join([utt.text for utt in moment.dialogue])
@@ -384,48 +389,49 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                     if ref_parts:
                         reference_description = ", ".join(ref_parts)
                 
-                needs_improvement_list.append({
-                    "dialogue": dialogue_with_ko,
-                    "reason": moment.reason,
-                    "better_response": moment.better_response,
-                    "pattern_hint": moment.pattern_hint,
-                    "expert_references": expert_references if expert_references else [],  # None 대신 빈 배열
-                    "reference_description": reference_description
-                })
+                # 첫 번째 것만 needs_improvement_list에 추가
+                if idx == 0:
+                    needs_improvement_list.append({
+                        "dialogue": dialogue_with_ko,
+                        "reason": moment.reason,
+                        "better_response": moment.better_response,
+                        "pattern_hint": moment.pattern_hint,
+                        "expert_references": expert_references if expert_references else [],  # None 대신 빈 배열
+                        "reference_description": reference_description
+                    })
+                else:
+                    # 나머지는 pattern_examples에 추가하기 위해 저장
+                    remaining_needs_improvement_moments.append({
+                        "dialogue": dialogue_with_ko,
+                        "reason": moment.reason,
+                        "better_response": moment.better_response,
+                        "pattern_hint": moment.pattern_hint,
+                        "expert_references": expert_references if expert_references else [],
+                        "reference_description": reference_description
+                    })
             
             # pattern_examples 변환 (한국어 원문 사용)
+            # LLM이 반환한 pattern_examples는 포함하지 않고, needs_improvement에서 사용되지 않은 것만 포함
             pattern_examples_list = []
-            for example in key_moments_content.pattern_examples:
-                dialogue_with_ko = []
-                for utt in example.dialogue:
-                    matched_text = utt.text
-                    for orig_utt in utterances_labeled:
-                        orig_speaker = orig_utt.get('speaker', '').lower()
-                        if orig_speaker in ['mom', 'mother', 'parent', '엄마', '아빠']:
-                            orig_speaker = 'parent'
-                        elif orig_speaker in ['chi', 'child', 'kid', '아이']:
-                            orig_speaker = 'child'
-                        
-                        if (utt.speaker.lower() == orig_speaker and 
-                            (utt.text in orig_utt.get('english', '') or 
-                             utt.text in orig_utt.get('text', '') or
-                             orig_utt.get('english', '') in utt.text or
-                             orig_utt.get('text', '') in utt.text)):
-                            matched_text = orig_utt.get('original_ko', orig_utt.get('korean', utt.text))
-                            break
-                    
-                    dialogue_with_ko.append({
-                        "speaker": utt.speaker,
-                        "text": matched_text
-                    })
+            
+            # needs_improvement에 포함되지 않은 나머지 needs_improvement moments를 pattern_examples에 추가
+            for moment_data in remaining_needs_improvement_moments:
+                # pattern_hint에서 패턴명 추출
+                pattern_hint = moment_data.get("pattern_hint", "")
+                pattern_name = _extract_pattern_name(pattern_hint) if pattern_hint else "개선 필요"
                 
-                pattern_examples_list.append({
-                    "pattern_name": example.pattern_name,
-                    "occurrences": example.occurrences,
-                    "dialogue": dialogue_with_ko,
-                    "problem_explanation": example.problem_explanation,
-                    "suggested_response": example.suggested_response
-                })
+                # 이미 pattern_examples_list에 있는지 확인 (중복 방지)
+                existing_pattern_names = [ex.get("pattern_name", "").replace(" ", "") for ex in pattern_examples_list]
+                pattern_name_normalized = pattern_name.replace(" ", "") if pattern_name else ""
+                
+                if pattern_name_normalized and pattern_name_normalized not in existing_pattern_names:
+                    pattern_examples_list.append({
+                        "pattern_name": pattern_name,
+                        "occurrences": 1,
+                        "dialogue": moment_data.get("dialogue", []),
+                        "problem_explanation": moment_data.get("reason", "개선이 필요한 순간입니다."),
+                        "suggested_response": moment_data.get("better_response", "더 나은 응답을 고려해보세요.")
+                    })
             
             return {
                 "key_moments": {
