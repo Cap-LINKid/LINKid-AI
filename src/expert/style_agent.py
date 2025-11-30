@@ -114,6 +114,8 @@ def analyze_style_node(state: Dict[str, Any]) -> Dict[str, Any]:
             {"name": _get_korean_label_name(label), "ratio": 0.0, "label": label}
             for label in all_labels
         ]
+        # ratio가 높은 순으로 정렬 (모두 0.0이지만 일관성을 위해)
+        empty_categories.sort(key=lambda x: x["ratio"], reverse=True)
         
         return {
             "style_analysis": {
@@ -196,6 +198,8 @@ def analyze_style_node(state: Dict[str, Any]) -> Dict[str, Any]:
         }
         for label in all_labels
     ]
+    # ratio가 높은 순으로 정렬
+    parent_categories.sort(key=lambda x: x["ratio"], reverse=True)
     
     # 모든 라벨에 대한 카테고리 생성 (아이 발화) - 한국어 매핑 적용
     child_categories = [
@@ -206,6 +210,8 @@ def analyze_style_node(state: Dict[str, Any]) -> Dict[str, Any]:
         }
         for label in all_labels
     ]
+    # ratio가 높은 순으로 정렬
+    child_categories.sort(key=lambda x: x["ratio"], reverse=True)
     
     return {
         "style_analysis": {
