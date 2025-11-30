@@ -45,6 +45,9 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "The rationale field should ONLY be included if expert advice references are provided in the expert_advice_section. "
             "If expert_advice_section is empty or no references are available, do NOT create a rationale field (leave it empty or omit it). "
             "When expert advice is available, include references in the format: '참고: [제목] ([저자], [출처])'. "
+            "IMPORTANT: Replace [제목], [저자], [출처] with actual values from expert_advice_section. "
+            "Do NOT use literal text '[저자]' or '[출처]' - use the actual author name and source. "
+            "If author or source information is not available, omit that part (e.g., '참고: [제목]' or '참고: [제목] ([저자])'). "
             "Do NOT make up or hallucinate references. Only use references that are explicitly provided in the expert_advice_section. "
             "QA tips should address common questions about the pattern based on the expert advice. "
             "All text in Korean. No extra text, only JSON."
@@ -254,7 +257,11 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         pattern_advice_map[pattern_name] = expert_advice
                         print(f"[VectorDB] 패턴 '{pattern_name}' 검색 결과: {len(expert_advice)}개")
                         for advice in expert_advice:
-                            print(f"  - [{advice['advice_type']}] {advice['title']} (유사도: {advice.get('relevance_score', 0):.3f})")
+                            title = advice.get('title', '')
+                            author = advice.get('author', '')
+                            source = advice.get('source', '')
+                            print(f"  - [{advice['advice_type']}] {title} (유사도: {advice.get('relevance_score', 0):.3f})")
+                            print(f"    author: '{author}' (type: {type(author).__name__}), source: '{source}' (type: {type(source).__name__})")
                     else:
                         print(f"[VectorDB] 패턴 '{pattern_name}' 검색 결과 없음")
                 
@@ -276,17 +283,27 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                     expert_references_list = []
                     for advice_list in pattern_advice_map.values():
                         for advice in advice_list:
-                            title = advice["title"]
+                            # 안전하게 데이터 추출 (None 체크 포함)
+                            title = advice.get("title") or ""
+                            source = advice.get("source") or ""
+                            author = advice.get("author") or ""
+                            
                             # 제목으로 중복 체크
-                            if title not in seen_titles:
+                            if title and title.strip() and title not in seen_titles:
                                 seen_titles.add(title)
-                                expert_references_list.append({
-                                    "title": title,
-                                    "source": advice["source"],
-                                    "author": advice.get("author", ""),
-                                    "type": advice["advice_type"]
-                                })
+                                ref_data = {
+                                    "title": title.strip(),
+                                    "source": source.strip() if source else "",
+                                    "author": author.strip() if author else "",
+                                    "type": advice.get("advice_type", "")
+                                }
+                                expert_references_list.append(ref_data)
+                                print(f"[VectorDB] 레퍼런스 추가: title='{ref_data['title']}', author='{ref_data['author']}', source='{ref_data['source']}'")
                     print(f"[VectorDB] 전문가 조언 섹션 생성 완료 - {len(expert_references_list)}개 레퍼런스 (중복 제거 후)")
+                    if expert_references_list:
+                        print(f"[VectorDB] 레퍼런스 상세 정보:")
+                        for i, ref in enumerate(expert_references_list, 1):
+                            print(f"  {i}. title='{ref['title']}', author='{ref['author']}', source='{ref['source']}'")
                 else:
                     print(f"[VectorDB] 모든 패턴 검색 결과 없음")
             else:
@@ -330,9 +347,16 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         seen_refs = set()
                         reference_texts = []
                         for ref in expert_references_list:
-                            author = ref.get("author", "")
-                            source = ref.get("source", "")
-                            title = ref.get("title", "")
+                            author = ref.get("author", "") or ""
+                            source = ref.get("source", "") or ""
+                            title = ref.get("title", "") or ""
+                            
+                            # 디버깅: 실제 값 확인
+                            print(f"[VectorDB] 레퍼런스 텍스트 생성 - title='{title}', author='{author}', source='{source}'")
+                            
+                            if not title:
+                                print(f"[VectorDB] 경고: 제목이 없는 레퍼런스 건너뜀")
+                                continue
                             
                             # 중복 체크용 키 생성
                             ref_key = f"{title}|{author}|{source}"
@@ -341,15 +365,20 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                             seen_refs.add(ref_key)
                             
                             # "참고: [제목] ([저자], [출처])" 형식
-                            if author and source:
+                            # author와 source가 실제로 값이 있는지 확인 (빈 문자열이 아닌지)
+                            author_has_value = author and author.strip()
+                            source_has_value = source and source.strip()
+                            
+                            if author_has_value and source_has_value:
                                 ref_text = f"참고: '{title}' ({author}, {source})"
-                            elif author:
+                            elif author_has_value:
                                 ref_text = f"참고: '{title}' ({author})"
-                            elif source:
+                            elif source_has_value:
                                 ref_text = f"참고: '{title}' ({source})"
                             else:
                                 ref_text = f"참고: '{title}'"
                             
+                            print(f"[VectorDB] 생성된 레퍼런스 텍스트: '{ref_text}'")
                             reference_texts.append(ref_text)
                         
                         # rationale에 레퍼런스 추가 (레퍼런스가 있을 때만)
@@ -360,8 +389,41 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                             
                             # 기존 rationale에서 이미 "참고:"가 포함되어 있는지 확인
                             if existing_rationale and "참고:" in existing_rationale:
-                                # 이미 레퍼런스가 있으면 추가하지 않음 (LLM이 이미 생성했을 수 있음)
-                                print(f"[VectorDB] rationale에 이미 레퍼런스가 포함되어 있음, 추가하지 않음")
+                                # LLM이 생성한 레퍼런스가 불완전한지 확인 (저자/출처가 없는지)
+                                # "참고: [제목]" 뒤에 "("가 없으면 불완전한 것으로 판단
+                                import re as regex_module
+                                
+                                # "참고: [제목]" 패턴 찾기 (괄호가 없는 경우)
+                                for ref in expert_references_list:
+                                    title = ref.get("title", "").strip()
+                                    author = ref.get("author", "").strip()
+                                    source = ref.get("source", "").strip()
+                                    
+                                    if not title:
+                                        continue
+                                    
+                                    # "참고: [제목]" 패턴이 있고, 저자/출처가 있는데 rationale에 포함되어 있지 않으면 추가
+                                    incomplete_pattern = f"참고: {title}"
+                                    if incomplete_pattern in existing_rationale and (author or source):
+                                        # 저자/출처가 이미 포함되어 있는지 확인
+                                        if not (author in existing_rationale or source in existing_rationale):
+                                            # "참고: [제목]" 뒤에 저자/출처 추가
+                                            if author and source:
+                                                complete_ref = f" ({author}, {source})"
+                                            elif author:
+                                                complete_ref = f" ({author})"
+                                            elif source:
+                                                complete_ref = f" ({source})"
+                                            else:
+                                                complete_ref = ""
+                                            
+                                            if complete_ref:
+                                                existing_rationale = existing_rationale.replace(incomplete_pattern, incomplete_pattern + complete_ref)
+                                                print(f"[VectorDB] 레퍼런스에 저자/출처 추가: '{incomplete_pattern}' -> '{incomplete_pattern}{complete_ref}'")
+                                                break
+                                
+                                coaching_data["challenge"]["rationale"] = existing_rationale
+                                print(f"[VectorDB] rationale의 레퍼런스에 저자/출처 추가 완료")
                             elif existing_rationale:
                                 # 기존 rationale 끝에 레퍼런스 추가
                                 coaching_data["challenge"]["rationale"] = existing_rationale + references_section

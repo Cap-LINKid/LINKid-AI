@@ -8,10 +8,36 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
 
-# DPICS 간략 코드 집합
-# PR: Praise, RD: Reflection, BD: Behavior Description, NT: Neutral Talk,
-# Q: Question, CMD: Command, NEG: Negative/Criticism, IGN: Ignore/Silence, OTH: Other
-_ALLOWED = {"PR", "RD", "BD", "NT", "Q", "CMD", "NEG", "IGN", "OTH"}
+# dpics_electra.py의 라벨 매핑 사용
+try:
+    from src.utils.dpics_electra import _MODEL_LABEL_TO_DPICS
+    # 모델 라벨에서 사용하는 DPICS 코드 추출
+    _DPICS_CODES_FROM_MODEL = set(_MODEL_LABEL_TO_DPICS.values())
+    # IGN, OTH는 기본값으로 추가 (모델에는 없지만 시스템에서 사용)
+    _ALLOWED = _DPICS_CODES_FROM_MODEL | {"IGN", "OTH"}
+except ImportError:
+    # dpics_electra를 import할 수 없는 경우 기본값 사용
+    _ALLOWED = {"PR", "RD", "BD", "NT", "Q", "CMD", "NEG", "IGN", "OTH"}
+
+# dpics_electra.py의 라벨 매핑을 기반으로 프롬프트 생성
+try:
+    from src.utils.dpics_electra import _MODEL_LABEL_TO_DPICS
+    # 모델 라벨 설명 생성
+    _LABEL_DESCRIPTIONS = {
+        "PR": "Praise (Labeled/Unlabeled/Prosocial Talk)",
+        "RD": "Reflective Statement (Reflection)",
+        "BD": "Behavior Description",
+        "NT": "Neutral Talk",
+        "Q": "Question",
+        "CMD": "Command",
+        "NEG": "Negative Talk",
+        "IGN": "Ignore/Silence",
+        "OTH": "Other"
+    }
+    # 사용 가능한 코드 목록 생성
+    codes_list = ", ".join([f"{code}({desc})" for code, desc in _LABEL_DESCRIPTIONS.items() if code in _ALLOWED])
+except ImportError:
+    codes_list = "PR(Praise), RD(Reflection), BD(Behavior Description), NT(Neutral Talk), Q(Question), CMD(Command), NEG(Negative/Criticism), IGN(Ignore/Silence), OTH(Other)"
 
 _DPCS_PROMPT = ChatPromptTemplate.from_messages([
     (
@@ -19,8 +45,7 @@ _DPCS_PROMPT = ChatPromptTemplate.from_messages([
         (
             "You annotate each line of a parent-child dialogue using DPICS-style codes. "
             "Return ONLY a JSON array with objects: {{line, code}}. Codes: "
-            "PR(Praise), RD(Reflection), BD(Behavior Description), NT(Neutral Talk), "
-            "Q(Question), CMD(Command), NEG(Negative/Criticism), IGN(Ignore/Silence), OTH(Other). "
+            f"{codes_list}. "
             "Choose the best single code per line. No extra text."
         ),
     ),

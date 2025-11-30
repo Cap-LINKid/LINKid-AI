@@ -102,10 +102,10 @@ def _build_needs_improvement_query(moment: Dict[str, Any]) -> str:
     if pattern_hint:
         # "명령과제시: 명령만 내림" -> "명령과제시"
         pattern_name = pattern_hint.split(":")[0].strip() if ":" in pattern_hint else pattern_hint.strip()
-        query = f"{pattern_name} 패턴 개선 방법"
+        query = f"{pattern_name}"
     else:
         # reason에서 키워드 추출
-        query = f"{reason} 개선 방법"
+        query = f"{reason}"
     
     return query
 
@@ -153,7 +153,7 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
             pattern_names = [p.get("pattern_name") for p in patterns[:3] if p.get("pattern_name")]
             if pattern_names:
                 # 첫 번째 패턴으로 검색
-                query = f"{pattern_names[0]} 패턴 개선 방법"
+                query = f"{pattern_names[0]}"
                 expert_advice = search_expert_advice(
                     query=query,
                     top_k=2,

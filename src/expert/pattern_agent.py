@@ -63,13 +63,14 @@ _PATTERN_PROMPT = ChatPromptTemplate.from_messages([
             "You are an expert in analyzing parent-child interaction patterns. "
             "Detect specific interaction patterns from labeled utterances. "
             f"Common patterns include: {_build_pattern_list_for_prompt()}. "
-            "\nDPICS label meanings:\n"
-            "- RF/RD: Reflective listening (반영적 경청) - ALWAYS positive, shows understanding and empathy\n"
-            "- PR: Praise (구체적 칭찬) - positive, specific praise\n"
-            "- BD: Behavior description (행동 묘사) - positive, neutral description of behavior\n"
-            "- NEG: Negative response (비판적 반응) - negative, critical response\n"
+            "\nDPICS label meanings (dpics_electra.py의 라벨 매핑 기준):\n"
+            "- RD: Reflective Statement (반영적 경청) - ALWAYS positive, shows understanding and empathy\n"
+            "- PR: Praise (구체적 칭찬) - positive, specific praise (Labeled/Unlabeled/Prosocial Talk)\n"
+            "- BD: Behavior Description (행동 묘사) - positive, neutral description of behavior\n"
+            "- NEG: Negative Talk (비판적 반응) - negative, critical response\n"
             "- Q: Question (질문) - context dependent\n"
-            "- CMD/IND: Command/Instruction - can be negative if excessive\n"
+            "- CMD: Command (명령) - can be negative if excessive\n"
+            "- NT: Neutral Talk (중립적 대화)\n"
             "\nReturn ONLY a JSON array of objects with: {{pattern_name, description, utterance_indices, severity}}. "
             "severity: 'low', 'medium', 'high'. "
             "pattern_name should match one of the Korean pattern names from the list above. "
@@ -94,9 +95,9 @@ _PATTERN_VALIDATION_PROMPT = ChatPromptTemplate.from_messages([
             "Pay special attention to false positives:\n"
             "- '행동 묘사' (BD) should NOT include negative, critical, or judgmental statements\n"
             "- '구체적 칭찬' (PR) should NOT include sarcasm, criticism, or negative comments\n"
-            "- '반영적 경청' (RF/RD) should NOT include dismissive or invalidating responses\n"
-            "- IMPORTANT: RF/RD labels indicate reflective listening and are ALWAYS positive patterns. "
-            "Do NOT reclassify RF/RD labeled utterances as negative patterns like '비판적 반응'.\n"
+            "- '반영적 경청' (RD) should NOT include dismissive or invalidating responses\n"
+            "- IMPORTANT: RD labels indicate reflective listening and are ALWAYS positive patterns. "
+            "Do NOT reclassify RD labeled utterances as negative patterns like '비판적 반응'.\n"
             "- Only reclassify as negative if the utterance clearly contains criticism, sarcasm, or invalidation "
             "AND the label is clearly wrong (e.g., PR labeled but contains sarcasm)\n"
             "Return ONLY a JSON array with validation results. "
@@ -152,10 +153,10 @@ def _detect_positive_patterns(utterances_labeled: List[Dict[str, Any]]) -> List[
                         })
                         break
         
-        # 패턴 2: 반영적 경청 (RF 또는 RD 라벨)
-        if label in ["RF", "RD"]:
+        # 패턴 2: 반영적 경청 (RD 라벨, dpics_electra.py 기준)
+        if label == "RD":
             for pattern_def in positive_patterns:
-                if pattern_def.get("dpics_code") == "RF" or pattern_def.get("name") == "반영적 경청":
+                if pattern_def.get("dpics_code") == "RD" or pattern_def.get("name") == "반영적 경청":
                     patterns.append({
                         "pattern_name": pattern_def.get("name", "반영적 경청"),
                         "description": f"반영적 경청을 사용했습니다: {utt.get('text', '')[:50]}",
@@ -210,7 +211,7 @@ def _detect_positive_patterns(utterances_labeled: List[Dict[str, Any]]) -> List[
         
         # 패턴 5: 감정 코칭 - 감정 관련 키워드와 함께 반영/공감
         emotion_keywords = ["화", "슬", "무서", "기쁘", "행복", "속상", "힘들", "짜증"]
-        if label in ["RF", "RD"] and any(kw in text for kw in emotion_keywords):
+        if label == "RD" and any(kw in text for kw in emotion_keywords):
             for pattern_def in positive_patterns:
                 if pattern_def.get("name") == "감정 코칭":
                     patterns.append({
@@ -273,15 +274,15 @@ def _detect_negative_patterns(utterances_labeled: List[Dict[str, Any]]) -> List[
                     })
                     break
         
-        # 패턴 2: 과도한 명령/지시 (CMD, IND 라벨)
-        if label in ["CMD", "IND"]:
+        # 패턴 2: 과도한 명령/지시 (CMD 라벨, dpics_electra.py 기준)
+        if label == "CMD":
             command_count += 1
             command_indices.append(i)
             
             # 연속된 명령 탐지
             if i > 0:
                 prev_label = utterances_labeled[i - 1].get("label", "")
-                if prev_label in ["CMD", "IND"]:
+                if prev_label == "CMD":
                     for pattern_def in negative_patterns:
                         if pattern_def.get("name") == "과도한 명령/지시":
                             patterns.append({
@@ -303,7 +304,7 @@ def _detect_negative_patterns(utterances_labeled: List[Dict[str, Any]]) -> List[
             emotion_keywords = ["화", "슬", "무서", "속상", "힘들", "짜증", "기쁘", "행복"]
             if (prev_speaker in ["child", "chi", "kid", "아이"] and 
                 any(kw in prev_text for kw in emotion_keywords) and
-                label not in ["RF", "RD", "PR"]):
+                label not in ["RD", "PR"]):
                 for pattern_def in negative_patterns:
                     if pattern_def.get("name") == "반영/공감 부족":
                         patterns.append({
