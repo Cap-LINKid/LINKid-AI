@@ -7,7 +7,7 @@ from typing import Dict, Any
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
-from src.utils.pattern_manager import is_negative_pattern, normalize_pattern_name
+from src.utils.pattern_manager import is_negative_pattern, normalize_pattern_name, is_positive_pattern
 
 
 _COMMENT_PROMPT = ChatPromptTemplate.from_messages([
@@ -87,7 +87,10 @@ def _extract_metrics_from_style_analysis(style_analysis: Dict[str, Any]) -> list
 
 
 def _extract_pattern_count_metrics(patterns: list, key_moments: Dict[str, Any]) -> list:
-    """패턴에서 카운트 메트릭 추출"""
+    """
+    패턴에서 카운트 메트릭 추출 (일반화)
+    모든 패턴에 대해 메트릭을 생성하며, 부정적 패턴을 우선적으로 추적
+    """
     metrics = []
     
     # key_moments에서 pattern_examples 가져오기
@@ -101,20 +104,37 @@ def _extract_pattern_count_metrics(patterns: list, key_moments: Dict[str, Any]) 
         pattern_name = p.get("pattern_name", "")
         occurrences = p.get("occurrences", 0)
         if pattern_name:
-            pattern_counts[pattern_name] = occurrences
+            pattern_counts[pattern_name] = pattern_counts.get(pattern_name, 0) + occurrences
     
-    # 주요 패턴 메트릭 추가
-    # "긍정적 기회 놓치기" 또는 "긍정기회놓치기" 패턴 확인 (정규화된 이름으로 비교)
+    # patterns에서도 패턴 카운트 집계 (중복 제거를 위해 합산)
+    for p in patterns:
+        pattern_name = p.get("pattern_name", "")
+        if pattern_name:
+            pattern_counts[pattern_name] = pattern_counts.get(pattern_name, 0) + 1
+    
+    # 모든 패턴에 대해 메트릭 생성
     for pattern_name, count in pattern_counts.items():
+        if not pattern_name or count == 0:
+            continue
+        
+        # 패턴 이름 정규화하여 메트릭 키 생성
         normalized_pattern = normalize_pattern_name(pattern_name)
-        # 정규화된 패턴명에 "긍정기회놓치기" 또는 "긍정적기회놓치기"가 포함되어 있는지 확인
-        if "긍정기회놓치기" in normalized_pattern or "긍정적기회놓치기" in normalized_pattern:
-            metrics.append({
-                "key": "missed_positive_opportunity_count",
-                "label": "긍정적 기회 놓치기 패턴",
-                "value": count,
-                "value_type": "count"
-            })
+        metric_key = f"pattern_{normalized_pattern}_count"
+        
+        # 패턴 타입에 따라 라벨 결정
+        if is_negative_pattern(pattern_name):
+            label = f"{pattern_name} 패턴 (부정적)"
+        elif is_positive_pattern(pattern_name):
+            label = f"{pattern_name} 패턴 (긍정적)"
+        else:
+            label = f"{pattern_name} 패턴"
+        
+        metrics.append({
+            "key": metric_key,
+            "label": label,
+            "value": count,
+            "value_type": "count"
+        })
     
     return metrics
 
