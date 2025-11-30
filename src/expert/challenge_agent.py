@@ -73,9 +73,23 @@ def _find_utterance_timestamp(
         return "00:00"
     
     utt = utterances[utterance_idx]
+    if not isinstance(utt, dict):
+        return "00:00"
+    
+    # timestamp 필드에서 직접 가져오기
     timestamp_ms = utt.get("timestamp")
-    if timestamp_ms is not None:
-        return _format_timestamp(timestamp_ms)
+    
+    # timestamp가 None이거나 0이면 다른 필드에서 찾기 시도
+    if timestamp_ms is None or timestamp_ms == 0:
+        # utterances가 원본 데이터 구조를 가지고 있을 수 있으므로
+        # 다른 가능한 필드명도 확인
+        timestamp_ms = utt.get("timestamp_ms") or utt.get("time") or utt.get("ts")
+    
+    if timestamp_ms is not None and timestamp_ms != 0:
+        try:
+            return _format_timestamp(int(timestamp_ms))
+        except (ValueError, TypeError):
+            return "00:00"
     
     return "00:00"
 
@@ -273,12 +287,14 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
     utterances = []
     for utt in utterances_raw:
         if isinstance(utt, dict):
+            # timestamp 추출 (여러 가능한 필드명 확인)
+            timestamp = utt.get("timestamp") or utt.get("timestamp_ms") or utt.get("time") or utt.get("ts")
             # 필요한 필드만 추출하여 새로운 딕셔너리 생성
             utterances.append({
                 "speaker": str(utt.get("speaker", "")),
                 "text": str(utt.get("text", "") or utt.get("original_ko", "") or utt.get("korean", "") or ""),
                 "label": str(utt.get("label", "")),
-                "timestamp": utt.get("timestamp"),
+                "timestamp": timestamp,  # timestamp 포함 (int 또는 None)
                 "original_ko": str(utt.get("original_ko", "") or utt.get("korean", "") or ""),
                 "korean": str(utt.get("korean", "") or ""),
                 "english": str(utt.get("english", "") or "")

@@ -196,9 +196,13 @@ def preprocess_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 else:
                     speaker = "MOM"  # 기본값
             
+            # timestamp 추출 (여러 가능한 필드명 확인)
+            timestamp = utt.get("timestamp") or utt.get("timestamp_ms") or utt.get("time") or utt.get("ts")
+            
             normalized.append({
                 "speaker": speaker,
-                "발화내용_ko": 발화내용_ko
+                "발화내용_ko": 발화내용_ko,
+                "timestamp": timestamp  # timestamp 포함
             })
         
         # 문자열 리스트인 경우 (하위 호환성)
@@ -274,9 +278,11 @@ def preprocess_node(state: Dict[str, Any]) -> Dict[str, Any]:
             if 발화내용_ko:
                 발화내용_ko = re.sub(r'^([AB])[:\s]+', '', 발화내용_ko, flags=re.IGNORECASE).strip()
             
+            # 문자열 리스트인 경우 timestamp는 없음
             normalized.append({
                 "speaker": speaker,
-                "발화내용_ko": 발화내용_ko
+                "발화내용_ko": 발화내용_ko,
+                "timestamp": None  # 문자열 형식에는 timestamp 정보 없음
             })
     
     return {"utterances_normalized": normalized}

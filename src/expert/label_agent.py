@@ -62,6 +62,7 @@ def label_utterances_node(state: Dict[str, Any]) -> Dict[str, Any]:
             speaker = orig_utt.get("speaker", "Unknown")
             text = orig_utt.get("english", orig_utt.get("text", ""))
             korean = orig_utt.get("korean", orig_utt.get("original_ko", ""))
+            timestamp = orig_utt.get("timestamp")  # timestamp 추출
             english_text = f"{speaker}: {text}"
             original_parsed.append({
                 "speaker": speaker,
@@ -70,6 +71,7 @@ def label_utterances_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 "english": text,
                 "original": english_text,  # DPICS 라벨링용 원본 (영어)
                 "original_ko": korean,  # 한국어 원문
+                "timestamp": timestamp,  # timestamp 포함
                 "matched": False
             })
         else:
@@ -89,6 +91,7 @@ def label_utterances_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 "english": text,
                 "original": orig_utt,
                 "original_ko": "",  # 기존 형식에는 한국어 정보 없음
+                "timestamp": None,  # 기존 형식에는 timestamp 정보 없음
                 "matched": False
             })
     
@@ -122,28 +125,32 @@ def label_utterances_node(state: Dict[str, Any]) -> Dict[str, Any]:
                     break
         
         # 매칭된 항목 사용
+        # 순환 참조 방지를 위해 필요한 필드만 명시적으로 추출하여 새로운 딕셔너리 생성
         if matched_idx is not None:
             orig = original_parsed[matched_idx]
             utterances_labeled.append({
-                "speaker": orig["speaker"],
-                "text": orig["text"],
-                "label": label,  # DPICS 코드 (PR, RD, BD, NT, Q, CMD, NEG, IGN, OTH)
-                "original": orig.get("original_ko", orig["original"]),  # 한국어 원문 우선, 없으면 영어
-                "original_ko": orig.get("original_ko", ""),  # 한국어 원문 명시적 포함
-                "english": orig.get("english", orig["text"])  # 영어 번역 포함
+                "speaker": str(orig.get("speaker", "")),
+                "text": str(orig.get("text", "")),
+                "label": str(label),  # DPICS 코드 (PR, RD, BD, NT, Q, CMD, NEG, IGN, OTH)
+                "original": str(orig.get("original_ko", orig.get("original", ""))),  # 한국어 원문 우선, 없으면 영어
+                "original_ko": str(orig.get("original_ko", "")),  # 한국어 원문 명시적 포함
+                "english": str(orig.get("english", orig.get("text", ""))),  # 영어 번역 포함
+                "timestamp": orig.get("timestamp")  # timestamp 포함 (int 또는 None)
             })
             original_parsed[matched_idx]["matched"] = True
     
     # LLM이 반환하지 않은 원본 발화들도 추가 (기본 라벨)
+    # 순환 참조 방지를 위해 필요한 필드만 명시적으로 추출하여 새로운 딕셔너리 생성
     for orig in original_parsed:
         if not orig["matched"]:
             utterances_labeled.append({
-                "speaker": orig["speaker"],
-                "text": orig["text"],
+                "speaker": str(orig.get("speaker", "")),
+                "text": str(orig.get("text", "")),
                 "label": "OTH",  # 기본 라벨
-                "original": orig.get("original_ko", orig["original"]),  # 한국어 원문 우선
-                "original_ko": orig.get("original_ko", ""),  # 한국어 원문 명시적 포함
-                "english": orig.get("english", orig["text"])  # 영어 번역 포함
+                "original": str(orig.get("original_ko", orig.get("original", ""))),  # 한국어 원문 우선
+                "original_ko": str(orig.get("original_ko", "")),  # 한국어 원문 명시적 포함
+                "english": str(orig.get("english", orig.get("text", ""))),  # 영어 번역 포함
+                "timestamp": orig.get("timestamp")  # timestamp 포함 (int 또는 None)
             })
     
     return {"utterances_labeled": utterances_labeled}

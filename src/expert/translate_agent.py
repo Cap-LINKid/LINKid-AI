@@ -75,16 +75,22 @@ def translate_ko_to_en_node(state: Dict[str, Any]) -> Dict[str, Any]:
             
             # 구조화된 형식으로 반환: 한국어 원문 보존
             utterances_en = []
-            for item in translations:
+            for idx, item in enumerate(translations):
                 # speaker label을 Parent/Child로 변환
                 speaker_label = "Parent" if item.speaker.upper() == "MOM" else "Child"
+                # timestamp 추출 (utterances_normalized에서)
+                timestamp = None
+                if idx < len(utterances_normalized) and isinstance(utterances_normalized[idx], dict):
+                    utt_norm = utterances_normalized[idx]
+                    timestamp = utt_norm.get("timestamp") or utt_norm.get("timestamp_ms") or utt_norm.get("time") or utt_norm.get("ts")
                 # 구조화된 형식: 한국어 원문과 영어 번역 모두 포함
                 utterances_en.append({
                     "speaker": speaker_label,
                     "korean": item.korean,
                     "english": item.english,
                     "text": item.english,  # 하위 호환성을 위한 필드
-                    "original_ko": item.korean  # 한국어 원문 명시적 보존
+                    "original_ko": item.korean,  # 한국어 원문 명시적 보존
+                    "timestamp": timestamp  # timestamp 포함
                 })
             
             return {"utterances_en": utterances_en}
@@ -97,12 +103,15 @@ def translate_ko_to_en_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 speaker = utt.get('speaker', 'MOM')
                 korean = utt.get('발화내용_ko', '')
                 speaker_label = "Parent" if speaker.upper() == "MOM" else "Child"
+                # timestamp 추출
+                timestamp = utt.get("timestamp") or utt.get("timestamp_ms") or utt.get("time") or utt.get("ts")
                 utterances_en.append({
                     "speaker": speaker_label,
                     "korean": korean,
                     "english": korean,  # 번역 실패 시 한국어 그대로
                     "text": korean,
-                    "original_ko": korean
+                    "original_ko": korean,
+                    "timestamp": timestamp  # timestamp 포함
                 })
         else:
             # 기존 문자열 형식 (하위 호환성)
@@ -118,12 +127,15 @@ def translate_ko_to_en_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 speaker = utt.get('speaker', 'MOM')
                 korean = utt.get('발화내용_ko', '')
                 speaker_label = "Parent" if speaker.upper() == "MOM" else "Child"
+                # timestamp 추출
+                timestamp = utt.get("timestamp") or utt.get("timestamp_ms") or utt.get("time") or utt.get("ts")
                 utterances_en.append({
                     "speaker": speaker_label,
                     "korean": korean,
                     "english": korean,  # 번역 실패 시 한국어 그대로
                     "text": korean,
-                    "original_ko": korean
+                    "original_ko": korean,
+                    "timestamp": timestamp  # timestamp 포함
                 })
         else:
             utterances_en = utterances_normalized
