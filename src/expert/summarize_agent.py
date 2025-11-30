@@ -7,6 +7,7 @@ from typing import Dict, Any
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
+from src.utils.pattern_manager import is_negative_pattern, normalize_pattern_name
 
 
 _COMMENT_PROMPT = ChatPromptTemplate.from_messages([
@@ -103,8 +104,11 @@ def _extract_pattern_count_metrics(patterns: list, key_moments: Dict[str, Any]) 
             pattern_counts[pattern_name] = occurrences
     
     # 주요 패턴 메트릭 추가
+    # "긍정적 기회 놓치기" 또는 "긍정기회놓치기" 패턴 확인 (정규화된 이름으로 비교)
     for pattern_name, count in pattern_counts.items():
-        if "긍정적 기회 놓치기" in pattern_name or "긍정기회놓치기" in pattern_name:
+        normalized_pattern = normalize_pattern_name(pattern_name)
+        # 정규화된 패턴명에 "긍정기회놓치기" 또는 "긍정적기회놓치기"가 포함되어 있는지 확인
+        if "긍정기회놓치기" in normalized_pattern or "긍정적기회놓치기" in normalized_pattern:
             metrics.append({
                 "key": "missed_positive_opportunity_count",
                 "label": "긍정적 기회 놓치기 패턴",

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from src.utils.common import get_structured_llm
 from src.utils.vector_store import search_expert_advice
+from src.utils.pattern_manager import extract_pattern_name as extract_pattern_name_from_manager, get_negative_pattern_names_normalized
 
 
 class DialogueUtterance(BaseModel):
@@ -112,36 +113,9 @@ def _build_needs_improvement_query(moment: Dict[str, Any]) -> str:
 def _extract_pattern_name(pattern_hint: str) -> Optional[str]:
     """
     pattern_hint에서 실제 패턴명만 추출
-    예: "명령과제시: 명령만 내림" -> "명령과제시"
+    예: "명령과제시: 명령만 내림" -> "과도한 명령/지시" (정규화된 패턴명)
     """
-    if not pattern_hint:
-        return None
-    
-    # 콜론(:) 이전 부분만 추출
-    pattern_name = pattern_hint.split(":")[0].strip() if ":" in pattern_hint else pattern_hint.strip()
-    
-    # 알려진 패턴명 목록
-    known_patterns = [
-        "긍정기회놓치기",
-        "명령과제시",
-        "비판적반응",
-        "공감부족",
-        "반영부족"
-    ]
-    
-    # 공백 제거하여 비교 (예: "비판적 반응" -> "비판적반응")
-    pattern_name_no_space = pattern_name.replace(" ", "")
-    
-    # 정확히 일치하는 패턴명 찾기 (공백 제거 버전으로도 비교)
-    for known in known_patterns:
-        if known in pattern_name or pattern_name in known:
-            return known
-        # 공백 제거 버전으로도 비교
-        if known in pattern_name_no_space or pattern_name_no_space in known:
-            return known
-    
-    # 매칭되지 않으면 공백 제거 버전 반환
-    return pattern_name_no_space if pattern_name_no_space else pattern_name
+    return extract_pattern_name_from_manager(pattern_hint)
 
 
 def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -287,12 +261,20 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         print(f"[Key Moments] 잘못된 reason 분석을 needs_improvement에서 제외: {reason[:50]}...")
                         continue
                 
-                # pattern_hint가 "명령과제시"인데 실제로는 질문형인 경우도 제외
+                # 명령 관련 패턴인데 실제로는 질문형인 경우도 제외
                 pattern_hint = moment.pattern_hint or ""
-                if "명령과제시" in pattern_hint or "명령" in pattern_hint:
+                # 정규화된 부정적 패턴 이름 중 명령 관련 패턴 확인
+                negative_patterns = get_negative_pattern_names_normalized()
+                pattern_hint_normalized = pattern_hint.replace(" ", "").lower()
+                is_command_pattern = (
+                    "명령" in pattern_hint or 
+                    "과도한명령" in pattern_hint_normalized or
+                    any("명령" in p for p in negative_patterns if pattern_hint_normalized in p or p in pattern_hint_normalized)
+                )
+                if is_command_pattern:
                     # 실제 발화가 질문형이면 제외
                     if any(indicator in dialogue_text for indicator in question_indicators):
-                        print(f"[Key Moments] '명령과제시' 패턴이지만 질문형 발화라서 needs_improvement에서 제외: {dialogue_text[:50]}...")
+                        print(f"[Key Moments] 명령 관련 패턴이지만 질문형 발화라서 needs_improvement에서 제외: {dialogue_text[:50]}...")
                         continue
                 
                 dialogue_with_ko = []

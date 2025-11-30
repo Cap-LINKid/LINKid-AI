@@ -10,6 +10,11 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
 from src.utils.vector_store import search_expert_advice
+from src.utils.pattern_manager import (
+    get_negative_pattern_names_normalized,
+    normalize_pattern_name,
+    is_pattern_negative
+)
 
 
 _COACHING_PROMPT = ChatPromptTemplate.from_messages([
@@ -74,16 +79,8 @@ def _find_most_frequent_pattern(patterns: List[Dict[str, Any]], key_moments: Dic
             severity = p.get("severity", "")
             occurrences = p.get("occurrences", 1)
             
-            # 부정적 패턴만 필터링 (pattern_type이 "negative"이거나 severity가 "medium"/"high")
-            is_negative = (
-                pattern_type == "negative" or 
-                severity in ["medium", "high"] or
-                # 패턴명으로도 판단 (부정적 패턴명 목록)
-                pattern_name in ["비판적 반응", "비판적반응", "명령과제시", "과도한 질문", 
-                                "감정 무시", "감정 기각", "심리적 통제", "긍정기회놓치기"]
-            )
-            
-            if pattern_name and is_negative:
+            # 부정적 패턴만 필터링 (중앙화된 함수 사용)
+            if pattern_name and is_pattern_negative(pattern_name, pattern_type, severity):
                 pattern_counts[pattern_name] = pattern_counts.get(pattern_name, 0) + occurrences
     
     # patterns에서도 부정적 패턴만 계산
@@ -92,16 +89,8 @@ def _find_most_frequent_pattern(patterns: List[Dict[str, Any]], key_moments: Dic
         pattern_type = p.get("pattern_type", "")
         severity = p.get("severity", "")
         
-        # 부정적 패턴만 필터링
-        is_negative = (
-            pattern_type == "negative" or 
-            severity in ["medium", "high"] or
-            # 패턴명으로도 판단
-            pattern_name in ["비판적 반응", "비판적반응", "명령과제시", "과도한 질문", 
-                            "감정 무시", "감정 기각", "심리적 통제", "긍정기회놓치기"]
-        )
-        
-        if pattern_name and is_negative:
+        # 부정적 패턴만 필터링 (중앙화된 함수 사용)
+        if pattern_name and is_pattern_negative(pattern_name, pattern_type, severity):
             pattern_counts[pattern_name] = pattern_counts.get(pattern_name, 0) + 1
     
     if not pattern_counts:
@@ -122,7 +111,7 @@ def _build_challenge_query(patterns: List[Dict[str, Any]], key_moments: Dict[str
     pattern_names = []
     if most_frequent:
         # 공백 제거하여 정규화
-        normalized_pattern = most_frequent.replace(" ", "")
+        normalized_pattern = normalize_pattern_name(most_frequent)
         pattern_names.append(normalized_pattern)
     
     # key_moments에서 추가 부정적 패턴 찾기
@@ -133,16 +122,9 @@ def _build_challenge_query(patterns: List[Dict[str, Any]], key_moments: Dict[str
             pattern_type = p.get("pattern_type", "")
             severity = p.get("severity", "")
             
-            # 부정적 패턴만 필터링
-            is_negative = (
-                pattern_type == "negative" or 
-                severity in ["medium", "high"] or
-                pattern_name in ["비판적 반응", "비판적반응", "명령과제시", "과도한 질문", 
-                                "감정 무시", "감정 기각", "심리적 통제", "긍정기회놓치기"]
-            )
-            
-            if pattern_name and is_negative:
-                normalized = pattern_name.replace(" ", "")
+            # 부정적 패턴만 필터링 (중앙화된 함수 사용)
+            if pattern_name and is_pattern_negative(pattern_name, pattern_type, severity):
+                normalized = normalize_pattern_name(pattern_name)
                 if normalized not in pattern_names:
                     pattern_names.append(normalized)
     
@@ -152,16 +134,9 @@ def _build_challenge_query(patterns: List[Dict[str, Any]], key_moments: Dict[str
         pattern_type = p.get("pattern_type", "")
         severity = p.get("severity", "")
         
-        # 부정적 패턴만 필터링
-        is_negative = (
-            pattern_type == "negative" or 
-            severity in ["medium", "high"] or
-            pattern_name in ["비판적 반응", "비판적반응", "명령과제시", "과도한 질문", 
-                            "감정 무시", "감정 기각", "심리적 통제", "긍정기회놓치기"]
-        )
-        
-        if pattern_name and is_negative:
-            normalized = pattern_name.replace(" ", "")
+        # 부정적 패턴만 필터링 (중앙화된 함수 사용)
+        if pattern_name and is_pattern_negative(pattern_name, pattern_type, severity):
+            normalized = normalize_pattern_name(pattern_name)
             if normalized not in pattern_names:
                 pattern_names.append(normalized)
     
@@ -214,33 +189,21 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # 패턴 정보 포맷팅 (부정적 패턴만 포함, 패턴명과 횟수 포함)
     pattern_examples = key_moments.get("pattern_examples", []) if isinstance(key_moments, dict) else []
     
-    # 부정적 패턴만 필터링
+    # 부정적 패턴만 필터링 (중앙화된 함수 사용)
     negative_pattern_examples = []
     for p in pattern_examples:
+        pattern_name = p.get("pattern_name", "")
         pattern_type = p.get("pattern_type", "")
         severity = p.get("severity", "")
-        pattern_name = p.get("pattern_name", "")
-        is_negative = (
-            pattern_type == "negative" or 
-            severity in ["medium", "high"] or
-            pattern_name in ["비판적 반응", "비판적반응", "명령과제시", "과도한 질문", 
-                            "감정 무시", "감정 기각", "심리적 통제", "긍정기회놓치기"]
-        )
-        if is_negative:
+        if is_pattern_negative(pattern_name, pattern_type, severity):
             negative_pattern_examples.append(p)
     
     negative_patterns = []
     for p in patterns:
+        pattern_name = p.get("pattern_name", "")
         pattern_type = p.get("pattern_type", "")
         severity = p.get("severity", "")
-        pattern_name = p.get("pattern_name", "")
-        is_negative = (
-            pattern_type == "negative" or 
-            severity in ["medium", "high"] or
-            pattern_name in ["비판적 반응", "비판적반응", "명령과제시", "과도한 질문", 
-                            "감정 무시", "감정 기각", "심리적 통제", "긍정기회놓치기"]
-        )
-        if is_negative:
+        if is_pattern_negative(pattern_name, pattern_type, severity):
             negative_patterns.append(p)
     
     patterns_str = "\n".join([
@@ -298,16 +261,9 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                     pattern_type = p.get("pattern_type", "")
                     severity = p.get("severity", "")
                     
-                    # 부정적 패턴만 필터링
-                    is_negative = (
-                        pattern_type == "negative" or 
-                        severity in ["medium", "high"] or
-                        pattern_name in ["비판적 반응", "비판적반응", "명령과제시", "과도한 질문", 
-                                        "감정 무시", "감정 기각", "심리적 통제", "긍정기회놓치기"]
-                    )
-                    
-                    if pattern_name and is_negative:
-                        normalized = pattern_name.replace(" ", "")
+                    # 부정적 패턴만 필터링 (중앙화된 함수 사용)
+                    if pattern_name and is_pattern_negative(pattern_name, pattern_type, severity):
+                        normalized = normalize_pattern_name(pattern_name)
                         if normalized not in all_patterns:
                             all_patterns.append(normalized)
             
@@ -317,16 +273,9 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 pattern_type = p.get("pattern_type", "")
                 severity = p.get("severity", "")
                 
-                # 부정적 패턴만 필터링
-                is_negative = (
-                    pattern_type == "negative" or 
-                    severity in ["medium", "high"] or
-                    pattern_name in ["비판적 반응", "비판적반응", "명령과제시", "과도한 질문", 
-                                    "감정 무시", "감정 기각", "심리적 통제", "긍정기회놓치기"]
-                )
-                
-                if pattern_name and is_negative:
-                    normalized = pattern_name.replace(" ", "")
+                # 부정적 패턴만 필터링 (중앙화된 함수 사용)
+                if pattern_name and is_pattern_negative(pattern_name, pattern_type, severity):
+                    normalized = normalize_pattern_name(pattern_name)
                     if normalized not in all_patterns:
                         all_patterns.append(normalized)
             
@@ -460,7 +409,7 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                                 most_frequent_pattern = _find_most_frequent_pattern(patterns, key_moments)
                                 # 패턴명 정규화 (공백 제거)
                                 if most_frequent_pattern:
-                                    normalized_pattern = most_frequent_pattern.replace(" ", "")
+                                    normalized_pattern = normalize_pattern_name(most_frequent_pattern)
                                     pattern_info = f"이 챌린지는 '{normalized_pattern}' 패턴이 감지되어 생성되었습니다."
                                 else:
                                     pattern_info = "이 챌린지는 분석 결과를 바탕으로 생성되었습니다."

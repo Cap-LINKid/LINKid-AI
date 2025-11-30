@@ -8,6 +8,7 @@ from typing import Dict, Any, List
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
+from src.utils.pattern_manager import get_negative_pattern_names
 
 
 def _load_pattern_definitions() -> Dict[str, Any]:
@@ -371,8 +372,18 @@ def _detect_negative_patterns(utterances_labeled: List[Dict[str, Any]]) -> List[
             if (prev_speaker in ["child", "chi", "kid", "아이"] and 
                 prev_label in ["BD"] and 
                 label != "PR"):
+                # 패턴 정의에서 "긍정" 또는 "기회"가 포함된 부정적 패턴 찾기
+                negative_pattern_names = get_negative_pattern_names()
+                missed_opportunity_pattern = None
+                for pattern_name in negative_pattern_names:
+                    if "긍정" in pattern_name or "기회" in pattern_name:
+                        missed_opportunity_pattern = pattern_name
+                        break
+                
+                # 패턴 정의에 없으면 기본 이름 사용
+                pattern_name = missed_opportunity_pattern or "긍정기회놓치기"
                 patterns.append({
-                    "pattern_name": "긍정기회놓치기",
+                    "pattern_name": pattern_name,
                     "description": "아이의 긍정적 행동에 칭찬하지 않았습니다",
                     "utterance_indices": [i - 1, i],
                     "severity": "medium",
