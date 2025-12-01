@@ -17,6 +17,31 @@ from src.utils.pattern_manager import (
 )
 
 
+_KEYWORD_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
+    (
+        "system",
+        (
+            "You are an expert at generating search keywords for finding relevant parenting advice. "
+            "Based on the dialogue summary, detected patterns, and key moments, generate 3-5 search keywords "
+            "that would help find relevant expert advice for creating a coaching challenge. "
+            "Return ONLY a JSON array of strings, each string being a search keyword. "
+            "Keywords should be specific, relevant to the patterns and dialogue context, and suitable for semantic search. "
+            "Example: [\"긍정기회놓치기 패턴 개선\", \"아동과의 긍정적 상호작용\", \"부모 코칭 기법\"]\n"
+            "All keywords in Korean. No extra text, only JSON array."
+        ),
+    ),
+    (
+        "human",
+        (
+            "대화 요약:\n{summary}\n\n"
+            "탐지된 패턴:\n{patterns}\n\n"
+            "핵심 순간:\n{key_moments}\n\n"
+            "위 정보를 바탕으로 전문가 조언 검색에 적합한 키워드 3-5개를 생성해주세요. "
+            "각 키워드는 패턴, 대화 맥락, 개선 방향을 고려하여 구체적으로 작성해주세요."
+        ),
+    ),
+])
+
 _COACHING_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
@@ -142,6 +167,51 @@ def _get_negative_patterns(patterns: List[Dict[str, Any]], key_moments: Dict[str
     return pattern_names
 
 
+def _generate_search_keywords(
+    summary: str,
+    patterns_str: str,
+    key_moments_str: str,
+    llm
+) -> List[str]:
+    """
+    LLM을 사용하여 검색 키워드 생성
+    
+    Args:
+        summary: 대화 요약
+        patterns_str: 패턴 정보 문자열
+        key_moments_str: 핵심 순간 문자열
+        llm: LLM 인스턴스
+    
+    Returns:
+        검색 키워드 리스트
+    """
+    try:
+        res = (_KEYWORD_GENERATION_PROMPT | llm).invoke({
+            "summary": summary,
+            "patterns": patterns_str,
+            "key_moments": key_moments_str,
+        })
+        content = getattr(res, "content", "") or str(res)
+        
+        # JSON 배열 파싱
+        json_match = re.search(r'\[[\s\S]*\]', content)
+        if json_match:
+            keywords = json.loads(json_match.group(0))
+            if isinstance(keywords, list):
+                # 문자열 리스트로 변환 및 필터링
+                keywords = [str(k).strip() for k in keywords if k and str(k).strip()]
+                print(f"[VectorDB] 생성된 검색 키워드: {keywords}")
+                return keywords
+        
+        print(f"[VectorDB] 키워드 생성 실패, 기본 패턴명 사용")
+        return []
+    except Exception as e:
+        print(f"[VectorDB] 키워드 생성 오류: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+
 def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     ⑧ coaching_plan: 코칭/실천 계획 (LLM)
@@ -222,10 +292,10 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     else:
         key_moments_str = str(key_moments) if key_moments else "(없음)"
     
-    # VectorDB 검색 (챌린지 생성용) - 각 패턴별로 개별 검색
+    # VectorDB 검색 (챌린지 생성용) - LLM으로 키워드 생성 후 검색
     expert_advice_section = ""
     expert_references_list = []
-    pattern_advice_map = {}  # 패턴별 조언 매핑
+    all_expert_advice = []  # 모든 검색 결과 수집
     
     # USE_VECTOR_DB가 명시적으로 false가 아니면 검색 시도 (기본값: true)
     use_vector_db_env = os.getenv("USE_VECTOR_DB", "true").lower()
@@ -237,77 +307,107 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
             negative_patterns = _get_negative_patterns(patterns, key_moments)
             print(f"[VectorDB] 챌린지 생성 검색 시작 - 패턴 목록: {negative_patterns}")
             
+            # LLM으로 검색 키워드 생성
+            search_keywords = _generate_search_keywords(
+                summary=summary,
+                patterns_str=patterns_str,
+                key_moments_str=key_moments_str,
+                llm=llm
+            )
+            
+            # 패턴명도 키워드에 추가 (키워드가 없거나 부족한 경우를 대비)
             if negative_patterns:
-                # 각 패턴에 대해 개별 검색
                 for pattern_name in negative_patterns:
-                    print(f"[VectorDB] 패턴 '{pattern_name}' 검색 중...")
+                    normalized_pattern = normalize_pattern_name(pattern_name)
+                    if normalized_pattern not in search_keywords:
+                        search_keywords.append(normalized_pattern)
+            
+            if search_keywords:
+                print(f"[VectorDB] 총 {len(search_keywords)}개 키워드로 검색 시작")
+                
+                # 각 키워드로 검색 수행
+                seen_advice_ids = set()  # 중복 제거용 (ID 기준)
+                for keyword in search_keywords:
+                    print(f"[VectorDB] 키워드 '{keyword}' 검색 중...")
                     
-                    # 패턴 이름만으로 검색 (추가 텍스트 없이)
+                    # 부정적 패턴이 있으면 pattern_names 필터 추가
+                    # filters = {
+                    #     "advice_type": ["pattern_advice", "coaching", "challenge_guide"]
+                    # }
+                    # if negative_patterns:
+                    #     filters["pattern_names"] = negative_patterns
+                    
                     expert_advice = search_expert_advice(
-                        query=pattern_name,
-                        top_k=int(os.getenv("VECTOR_SEARCH_TOP_K_CHALLENGE", "3")),  # 패턴당 3개
-                        threshold=float(os.getenv("VECTOR_SEARCH_THRESHOLD", "0.3")),
-                        filters={
-                            "advice_type": ["pattern_advice", "coaching", "challenge_guide"],
-                            "pattern_names": [pattern_name]  # 해당 패턴만 필터링
-                        }
+                        query=keyword,
+                        top_k=int(os.getenv("VECTOR_SEARCH_TOP_K_CHALLENGE", "3")),  # 키워드당 3개
+                        threshold=float(os.getenv("VECTOR_SEARCH_THRESHOLD", "0.1"))
+                        # filters=filters
                     )
                     
                     if expert_advice:
-                        pattern_advice_map[pattern_name] = expert_advice
-                        print(f"[VectorDB] 패턴 '{pattern_name}' 검색 결과: {len(expert_advice)}개")
+                        print(f"[VectorDB] 키워드 '{keyword}' 검색 결과: {len(expert_advice)}개")
                         for advice in expert_advice:
-                            title = advice.get('title', '')
-                            author = advice.get('author', '')
-                            source = advice.get('source', '')
-                            print(f"  - [{advice['advice_type']}] {title} (유사도: {advice.get('relevance_score', 0):.3f})")
-                            print(f"    author: '{author}' (type: {type(author).__name__}), source: '{source}' (type: {type(source).__name__})")
+                            # ID로 중복 제거 (ID가 없으면 title로)
+                            advice_id = advice.get("id") or advice.get("title", "")
+                            if advice_id and advice_id not in seen_advice_ids:
+                                seen_advice_ids.add(advice_id)
+                                all_expert_advice.append(advice)
+                                title = advice.get('title', '')
+                                author = advice.get('author', '')
+                                source = advice.get('source', '')
+                                print(f"  - [{advice['advice_type']}] {title} (유사도: {advice.get('relevance_score', 0):.3f})")
                     else:
-                        print(f"[VectorDB] 패턴 '{pattern_name}' 검색 결과 없음")
+                        print(f"[VectorDB] 키워드 '{keyword}' 검색 결과 없음")
                 
-                # 모든 검색 결과를 패턴별로 그룹화하여 프롬프트에 포함
-                if pattern_advice_map:
+                # 모든 검색 결과를 프롬프트에 포함
+                if all_expert_advice:
+                    # 유사도 점수 기준으로 정렬 (내림차순)
+                    all_expert_advice.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
+                    
+                    # 상위 결과만 선택 (너무 많으면 제한)
+                    max_results = int(os.getenv("VECTOR_SEARCH_MAX_RESULTS", "15"))
+                    selected_advice = all_expert_advice[:max_results]
+                    
+                    print(f"[VectorDB] 총 {len(all_expert_advice)}개 결과 중 상위 {len(selected_advice)}개 선택")
+                    
+                    # 전문가 조언 섹션 구성
                     expert_advice_sections = []
-                    for pattern_name, advice_list in pattern_advice_map.items():
-                        pattern_section = f"\n[{pattern_name} 패턴 관련 조언]\n"
-                        pattern_section += "\n".join([
-                            f"- [{advice['advice_type']}] {advice['title']}\n  {advice['content'][:400]}..."
-                            for advice in advice_list
-                        ])
-                        expert_advice_sections.append(pattern_section)
+                    for advice in selected_advice:
+                        advice_section = f"- [{advice['advice_type']}] {advice['title']}\n  {advice['content'][:400]}..."
+                        expert_advice_sections.append(advice_section)
                     
                     expert_advice_section = "전문가 조언 및 챌린지 가이드:\n" + "\n".join(expert_advice_sections)
                     
                     # 레퍼런스 리스트 구성 (중복 제거)
                     seen_titles = set()
                     expert_references_list = []
-                    for advice_list in pattern_advice_map.values():
-                        for advice in advice_list:
-                            # 안전하게 데이터 추출 (None 체크 포함)
-                            title = advice.get("title") or ""
-                            source = advice.get("source") or ""
-                            author = advice.get("author") or ""
-                            
-                            # 제목으로 중복 체크
-                            if title and title.strip() and title not in seen_titles:
-                                seen_titles.add(title)
-                                ref_data = {
-                                    "title": title.strip(),
-                                    "source": source.strip() if source else "",
-                                    "author": author.strip() if author else "",
-                                    "type": advice.get("advice_type", "")
-                                }
-                                expert_references_list.append(ref_data)
-                                print(f"[VectorDB] 레퍼런스 추가: title='{ref_data['title']}', author='{ref_data['author']}', source='{ref_data['source']}'")
+                    for advice in selected_advice:
+                        # 안전하게 데이터 추출 (None 체크 포함)
+                        title = advice.get("title") or ""
+                        source = advice.get("source") or ""
+                        author = advice.get("author") or ""
+                        
+                        # 제목으로 중복 체크
+                        if title and title.strip() and title not in seen_titles:
+                            seen_titles.add(title)
+                            ref_data = {
+                                "title": title.strip(),
+                                "source": source.strip() if source else "",
+                                "author": author.strip() if author else "",
+                                "type": advice.get("advice_type", "")
+                            }
+                            expert_references_list.append(ref_data)
+                            print(f"[VectorDB] 레퍼런스 추가: title='{ref_data['title']}', author='{ref_data['author']}', source='{ref_data['source']}'")
+                    
                     print(f"[VectorDB] 전문가 조언 섹션 생성 완료 - {len(expert_references_list)}개 레퍼런스 (중복 제거 후)")
                     if expert_references_list:
                         print(f"[VectorDB] 레퍼런스 상세 정보:")
                         for i, ref in enumerate(expert_references_list, 1):
                             print(f"  {i}. title='{ref['title']}', author='{ref['author']}', source='{ref['source']}'")
                 else:
-                    print(f"[VectorDB] 모든 패턴 검색 결과 없음")
+                    print(f"[VectorDB] 모든 키워드 검색 결과 없음")
             else:
-                print(f"[VectorDB] 부정적 패턴이 없어 검색하지 않음")
+                print(f"[VectorDB] 검색 키워드가 생성되지 않아 검색하지 않음")
         except Exception as e:
             print(f"[VectorDB] 검색 오류 (coaching_plan): {e}")
             import traceback
