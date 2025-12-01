@@ -6,7 +6,8 @@
 
 1. **threshold가 너무 높음**: 기본값 0.7인데 실제 유사도는 0.3~0.5 정도
 2. **USE_VECTOR_DB 환경 변수 미설정**: false로 되어 있으면 검색이 실행되지 않음
-3. **필터링 조건이 너무 엄격함**: pattern_names 필터가 정확히 일치하지 않을 수 있음
+3. **필터링 조건이 너무 엄격함**: `type` / `pattern_names` 필터가 실제 데이터와 잘 매칭되지 않을 수 있음  
+   (특히 `pattern_names`는 DB의 `Related_DPICS` 문자열에 부분 일치로 매핑됨)
 
 ### 해결 방법
 
@@ -50,11 +51,21 @@ VECTOR_SEARCH_THRESHOLD=0.4  # 기본값 0.7에서 0.4로 변경
 
 #### 방법 3: 검색 쿼리 개선
 
-현재 쿼리: `"{pattern_hint} 패턴 개선 방법"`
+현재 쿼리 예시: `"{pattern_hint} 패턴 개선 방법"`
 
 더 구체적인 쿼리로 변경:
 - `"{pattern_hint} 패턴 개선: 아이의 감정 고려하기"`
 - `"{pattern_hint} 패턴에서 공감적 대응 방법"`
+
+또한, 새 스키마에서는 `filters`를 다음과 같이 사용하는 것이 좋습니다:
+
+```python
+filters = {
+    "type": ["Negative", "Positive"],  # DB의 type 컬럼
+    # pattern_names는 Related_DPICS 문자열에 부분 일치로 매핑됨
+    "pattern_names": ["명령과제시", "11 Negative"],
+}
+```
 
 ### 현재 데이터 확인
 
@@ -79,8 +90,9 @@ results = search_expert_advice(
     top_k=3,
     threshold=0.4,  # 0.7에서 0.4로 낮춤
     filters={
-        "advice_type": ["pattern_advice", "coaching"],
-        "pattern_names": ["명령과제시"]
+        # 새 스키마 기준 예시
+        "type": ["Negative", "Positive"],
+        "pattern_names": ["명령과제시"]  # Related_DPICS에 부분 일치
     }
 )
 ```

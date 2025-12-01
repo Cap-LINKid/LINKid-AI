@@ -39,10 +39,9 @@
 ┌─────────────────────────────────────┐
 │  search_expert_advice() 실행        │
 │  - top_k: 2-3개                     │
-│  - threshold: 0.7                   │
+│  - threshold: 0.3~0.7               │
 │  - filters: {                       │
-│      advice_type: ["pattern_advice",│
-│                    "coaching"],     │
+│      type: ["Negative","Positive"], │
 │      pattern_names: [pattern_name]  │
 │    }                                │
 └──────────────┬──────────────────────┘
@@ -118,11 +117,13 @@ for moment in needs_improvement:
     expert_advice = search_expert_advice(
         query=query,
         top_k=2,  # 2-3개만 (너무 많으면 노이즈)
-        threshold=0.7,  # 유사도 0.7 이상만
+        threshold=0.3,  # 새 스키마 기준 기본값 낮춤 (코드 기본: env 또는 0.3)
         filters={
-            "advice_type": ["pattern_advice", "coaching"],
-            "pattern_names": [moment.get("pattern_hint")] if moment.get("pattern_hint") else None
-        }
+            # type/advice_type -> DB의 type 컬럼에 매핑
+            "type": ["Negative", "Positive"],
+            # pattern_hint를 Related_DPICS 문자열에 부분 일치로 사용
+            "pattern_names": [moment.get("pattern_hint")] if moment.get("pattern_hint") else None,
+        },
     )
     
     # 결과 예시:
@@ -216,10 +217,9 @@ needs_improvement_list.append({
 ┌─────────────────────────────────────┐
 │  search_expert_advice() 실행        │
 │  - top_k: 3-5개                     │
-│  - threshold: 0.7                   │
+│  - threshold: 0.3~0.7               │
 │  - filters: {                       │
-│      advice_type: ["challenge_guide",│
-│                    "pattern_advice"],│
+│      type: ["Negative","Additional"],│
 │      pattern_names: [most_frequent] │
 │    }                                │
 └──────────────┬──────────────────────┘
@@ -310,11 +310,11 @@ query = build_challenge_query(patterns, key_moments)
 expert_advice = search_expert_advice(
     query=query,
     top_k=5,  # 3-5개 (챌린지 가이드 + 패턴 조언)
-    threshold=0.7,
+    threshold=0.3,
     filters={
-        "advice_type": ["challenge_guide", "pattern_advice"],  # 챌린지 가이드 우선
-        "pattern_names": [most_frequent] if most_frequent else None
-    }
+        "type": ["Negative", "Additional"],
+        "pattern_names": [most_frequent] if most_frequent else None,
+    },
 )
 
 # 결과 예시:
@@ -413,10 +413,10 @@ coaching_data = {
 
 ### 2. 필터링 전략
 
-| 유스케이스 | advice_type 우선순위 | pattern_names 필터 |
-|-----------|---------------------|-------------------|
-| needs_improvement | `pattern_advice` > `coaching` | 패턴명 일치 |
-| challenge | `challenge_guide` > `pattern_advice` > `coaching` | 가장 빈번한 패턴 |
+| 유스케이스 | type / advice_type 예시 | pattern_names 필터 (Related_DPICS) |
+|-----------|-------------------------|-----------------------------------|
+| needs_improvement | `Negative`, `Positive` 등 | 패턴 이름 또는 DPICS 코드 부분 일치 |
+| challenge | `Negative`, `Additional` 등 | 가장 빈번한 패턴 이름 기반 |
 
 ### 3. 검색 파라미터
 

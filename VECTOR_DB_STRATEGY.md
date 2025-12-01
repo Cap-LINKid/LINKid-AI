@@ -19,55 +19,45 @@ langchain-postgres>=0.0.6  # LangChain PGVector 통합 (또는 직접 구현)
 
 ### 전문가 조언 테이블 (expert_advice)
 
+실제 스키마 정의는 `data/sql/vector_db_schema.sql`에 있으며, 핵심 구조는 다음과 같습니다.
+
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
 
-CREATE TABLE expert_advice (
+CREATE TABLE IF NOT EXISTS expert_advice (
     id SERIAL PRIMARY KEY,
-    
-    -- 기본 정보
-    title VARCHAR(500) NOT NULL,
-    content TEXT NOT NULL,  -- 벡터화할 메인 콘텐츠
-    summary TEXT,  -- 간단 요약
-    
-    -- 카테고리 및 분류
-    advice_type VARCHAR(50) NOT NULL,  -- 'coaching', 'challenge_guide', 'qa_tip', 'pattern_advice'
-    category VARCHAR(100),  -- '긍정강화', '공감', '지시' 등
-    
-    -- 메타데이터 (검색 필터링용)
-    pattern_names TEXT[],  -- ['긍정기회놓치기', '명령과제시'] 등
-    dpics_labels TEXT[],  -- ['PR', 'RD', 'CMD'] 등
-    interaction_stages TEXT[],  -- ['공감적 협력', '개선이 필요한 상호작용'] 등
-    severity_levels TEXT[],  -- ['low', 'medium', 'high']
-    
-    -- 관련 정보
-    related_challenges TEXT[],  -- 관련 챌린지 ID 또는 이름
-    tags TEXT[],  -- ['칭찬', '긍정강화', '공감'] 등
-    
+
+    -- 주요 속성 (CSV/TSV 컬럼과 1:1 매핑)
+    category TEXT,          -- Category
+    age TEXT,               -- Age
+    related_dpics TEXT,     -- Related_DPICS (관련 패턴)
+    keyword TEXT,           -- Keyword
+    situation TEXT,         -- Situation
+    type TEXT,              -- Type (Positive / Negative / Additional 등)
+    advice TEXT,            -- Advice (실제 조언 본문)
+    reference TEXT,         -- Reference (출처 정보)
+
     -- 벡터 임베딩
-    embedding vector(1536),  -- OpenAI text-embedding-3-small 기준 (다른 모델은 차원 변경)
-    
+    embedding vector(1536),
+
     -- 메타데이터
-    source VARCHAR(200),  -- 출처 (예: 'DPICS 가이드', '전문가 조언')
-    author VARCHAR(200),  -- 저자/연구자 (예: '오은영 박사 연구', 'DPICS 연구팀')
-    priority INTEGER DEFAULT 0,  -- 우선순위 (높을수록 우선)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    -- 인덱스
-    CONSTRAINT valid_advice_type CHECK (advice_type IN ('coaching', 'challenge_guide', 'qa_tip', 'pattern_advice', 'general'))
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 벡터 검색 성능을 위한 인덱스
-CREATE INDEX ON expert_advice USING ivfflat (embedding vector_cosine_ops)
-WITH (lists = 100);  -- 데이터 크기에 따라 조정
+-- 벡터 검색용 HNSW 인덱스
+CREATE INDEX IF NOT EXISTS idx_expert_advice_embedding_hnsw
+ON expert_advice
+USING hnsw (embedding vector_cosine_ops)
+WITH (m = 16, ef_construction = 64);
 
--- 메타데이터 필터링을 위한 인덱스
-CREATE INDEX idx_pattern_names ON expert_advice USING GIN (pattern_names);
-CREATE INDEX idx_dpics_labels ON expert_advice USING GIN (dpics_labels);
-CREATE INDEX idx_advice_type ON expert_advice (advice_type);
-CREATE INDEX idx_category ON expert_advice (category);
+-- 자주 필터링하는 컬럼 인덱스
+CREATE INDEX IF NOT EXISTS idx_expert_advice_category ON expert_advice (category);
+CREATE INDEX IF NOT EXISTS idx_expert_advice_age ON expert_advice (age);
+CREATE INDEX IF NOT EXISTS idx_expert_advice_type ON expert_advice (type);
 ```
+
+임베딩 생성 시에는 `Category ~ Reference`까지 **모든 속성을 하나의 문서로 합쳐서** `embedding` 컬럼에 저장합니다.
 
 ## 3. 전문가 조언 데이터 구성
 

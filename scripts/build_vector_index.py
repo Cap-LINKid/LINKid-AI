@@ -71,6 +71,76 @@ def load_expert_advice_json(data_dir: str) -> List[Dict[str, Any]]:
     return all_advice
 
 
+def _build_document_from_advice(advice: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    조언 딕셔너리에서 새 expert_advice 스키마(Category~Reference)에 맞는 필드와
+    임베딩용 문서 텍스트를 생성한다.
+
+    - 기존 JSON 스키마(title, content, ...),
+      새 CSV/TSV 스키마(Category, Age, Related_DPICS, Keyword, Situation, Type, Advice, Reference)
+      를 모두 최대한 지원하도록 키 매핑을 한다.
+    """
+    category = advice.get("Category") or advice.get("category") or ""
+    age = advice.get("Age") or advice.get("age") or ""
+    related_dpics = (
+        advice.get("Related_DPICS")
+        or advice.get("Related_DPICS (관련 패턴)")
+        or advice.get("related_dpics")
+        or ", ".join(advice.get("dpics_labels", []))
+        or ""
+    )
+    keyword = (
+        advice.get("Keyword")
+        or advice.get("keyword")
+        or ", ".join(advice.get("tags", []))
+        or ""
+    )
+    situation = advice.get("Situation") or advice.get("situation") or ""
+    type_ = (
+        advice.get("Type")
+        or advice.get("type")
+        or advice.get("advice_type")
+        or ""
+    )
+    advice_text = (
+        advice.get("Advice")
+        or advice.get("advice")
+        or advice.get("content")
+        or ""
+    )
+    reference = (
+        advice.get("Reference")
+        or advice.get("reference")
+        or advice.get("source")
+        or ""
+    )
+
+    # 모든 속성을 하나의 문서 텍스트로 합치기
+    parts = [
+        f"Category: {category}" if category else "",
+        f"Age: {age}" if age else "",
+        f"Related_DPICS: {related_dpics}" if related_dpics else "",
+        f"Keyword: {keyword}" if keyword else "",
+        f"Situation: {situation}" if situation else "",
+        f"Type: {type_}" if type_ else "",
+        f"Advice: {advice_text}" if advice_text else "",
+        f"Reference: {reference}" if reference else "",
+    ]
+    doc_text = "\n".join(p for p in parts if p)
+
+    return {
+        "category": category,
+        "age": age,
+        "related_dpics": related_dpics,
+        "keyword": keyword,
+        "situation": situation,
+        "type": type_,
+        "advice_text": advice_text,
+        "reference": reference,
+        "doc_text": doc_text,
+    }
+
+
 def insert_advice_to_db(
     advice_list: List[Dict[str, Any]],
     table_name: str = "expert_advice"
@@ -92,80 +162,77 @@ def insert_advice_to_db(
     inserted_count = 0
     
     try:
-        # content 리스트 추출 (임베딩 생성용)
-        contents = []
-        valid_advice = []
+        # 임베딩 생성용 문서와 변환된 레코드 리스트
+        documents: List[str] = []
+        transformed_rows: List[Dict[str, Any]] = []
         
         for advice in advice_list:
-            content = advice.get("content", "")
-            if not content:
-                print(f"경고: content가 없는 항목을 건너뜁니다: {advice.get('title', 'Unknown')}")
+            row = _build_document_from_advice(advice)
+            doc_text = row["doc_text"]
+            if not doc_text.strip():
+                print(f"경고: 유효한 텍스트가 없는 항목을 건너뜁니다: {advice}")
                 continue
-            contents.append(content)
-            valid_advice.append(advice)
+            documents.append(doc_text)
+            transformed_rows.append(row)
         
-        if not contents:
+        if not documents:
             print("삽입할 데이터가 없습니다.")
             return 0
         
         # 배치로 임베딩 생성
-        print(f"임베딩 생성 중... (총 {len(contents)}개)")
-        embeddings = embed_texts(contents)
+        print(f"임베딩 생성 중... (총 {len(documents)}개)")
+        embeddings = embed_texts(documents)
         print(f"임베딩 생성 완료 (차원: {len(embeddings[0])})")
         
         # 데이터 삽입
         print(f"\n데이터베이스에 삽입 중...")
         
-        for i, (advice, embedding) in enumerate(zip(valid_advice, embeddings)):
+        for i, (row, embedding) in enumerate(zip(transformed_rows, embeddings)):
             try:
                 # 벡터를 PostgreSQL 형식으로 변환
                 embedding_str = "[" + ",".join(map(str, embedding)) + "]"
                 
-                # SQL INSERT 쿼리
+                # SQL INSERT 쿼리 (새 스키마: Category~Reference + embedding)
                 insert_sql = f"""
                 INSERT INTO {table_name} (
-                    title, content, summary,
-                    advice_type, category,
-                    pattern_names, dpics_labels, interaction_stages, severity_levels,
-                    related_challenges, tags,
-                    embedding,
-                    source, author, priority
+                    category,
+                    age,
+                    related_dpics,
+                    keyword,
+                    situation,
+                    type,
+                    advice,
+                    reference,
+                    embedding
                 ) VALUES (
-                    %s, %s, %s,
-                    %s, %s,
-                    %s, %s, %s, %s,
-                    %s, %s,
-                    %s::vector,
-                    %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s::vector
                 )
                 """
                 
-                cursor.execute(insert_sql, (
-                    advice.get("title", ""),
-                    advice.get("content", ""),
-                    advice.get("summary", ""),
-                    advice.get("advice_type", "general"),
-                    advice.get("category", ""),
-                    advice.get("pattern_names", []),
-                    advice.get("dpics_labels", []),
-                    advice.get("interaction_stages", []),
-                    advice.get("severity_levels", []),
-                    advice.get("related_challenges", []),
-                    advice.get("tags", []),
-                    embedding_str,
-                    advice.get("source", ""),
-                    advice.get("author", ""),
-                    advice.get("priority", 0),
-                ))
+                cursor.execute(
+                    insert_sql,
+                    (
+                        row["category"],
+                        row["age"],
+                        row["related_dpics"],
+                        row["keyword"],
+                        row["situation"],
+                        row["type"],
+                        row["advice_text"],
+                        row["reference"],
+                        embedding_str,
+                    ),
+                )
                 
                 inserted_count += 1
                 
                 if (i + 1) % 10 == 0:
-                    print(f"진행 중: {i + 1}/{len(valid_advice)}")
+                    print(f"진행 중: {i + 1}/{len(transformed_rows)}")
                     conn.commit()  # 중간 커밋
                     
             except Exception as e:
-                print(f"삽입 오류 (제목: {advice.get('title', 'Unknown')}): {e}")
+                print(f"삽입 오류: {e}")
                 conn.rollback()
                 continue
         

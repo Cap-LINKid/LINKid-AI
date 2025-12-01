@@ -64,6 +64,9 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "}}\n"
             "The challenge should focus on the most frequent pattern. "
             "Actions should be specific and actionable, and should incorporate the expert advice provided. "
+            "The challenge MUST be grounded in the concrete dialogue examples provided (utterances and key moments), "
+            "referring to specific repeated behaviors, phrases, and situations rather than generic parenting advice. "
+            "Whenever possible, connect each action to a specific type of interaction from the dialogue (e.g., 용돈, 물건 뺏기, 고집 부림 등). "
             "IMPORTANT: When expert_advice_section is provided, you MUST use the specific advice and strategies from it to create the challenge. "
             "The challenge goal, actions, and rationale should be based on the expert advice provided. "
             "If expert_advice_section contains pattern-specific advice, prioritize using that advice for the corresponding pattern. "
@@ -74,7 +77,7 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "Do NOT use literal text '[저자]' or '[출처]' - use the actual author name and source. "
             "If author or source information is not available, omit that part (e.g., '참고: [제목]' or '참고: [제목] ([저자])'). "
             "Do NOT make up or hallucinate references. Only use references that are explicitly provided in the expert_advice_section. "
-            "QA tips should address common questions about the pattern based on the expert advice. "
+            "QA tips should address common questions about the pattern based on the expert advice and the specific dialogue context. "
             "All text in Korean. No extra text, only JSON."
         ),
     ),
@@ -85,9 +88,11 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "스타일 분석:\n{style_analysis}\n\n"
             "탐지된 패턴:\n{patterns}\n\n"
             "핵심 순간:\n{key_moments}\n\n"
+            "대표 대화 예시:\n{dialogue_examples}\n\n"
             "{expert_advice_section}\n\n"
             "위 정보를 바탕으로 코칭 계획을 JSON 형식으로 작성해주세요. "
-            "전문가 조언을 참고하여 챌린지의 actions와 goal을 구체적으로 작성하세요.\n"
+            "챌린지는 반드시 위 대화 예시와 패턴에서 반복적으로 나타난 구체적인 상황(예: 돈, 물건 뺏기, 고집 부림 등)을 직접 다루어야 합니다. "
+            "전문가 조언을 참고하여 챌린지의 actions와 goal을 구체적으로 작성하되, 실제 대화 장면에서 부모와 아이가 어떻게 행동을 바꿀지에 초점을 맞추세요.\n"
             "중요: expert_advice_section이 비어있거나 '(없음)'인 경우, rationale 필드를 생성하지 마세요. "
             "rationale은 반드시 expert_advice_section에 제공된 레퍼런스가 있을 때만 포함하세요."
         ),
@@ -220,6 +225,7 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     style_analysis = state.get("style_analysis") or {}
     patterns = state.get("patterns") or []
     key_moments = state.get("key_moments") or {}
+    utterances = state.get("utterances_ko") or []
     
     if not summary and not patterns:
         return {
@@ -291,6 +297,20 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
             ])
     else:
         key_moments_str = str(key_moments) if key_moments else "(없음)"
+
+    # 대표 대화 예시 구성 (실제 발화를 최대 N개까지 포함)
+    dialogue_examples_str = ""
+    if isinstance(utterances, list) and utterances:
+        max_utterances = 8
+        formatted_utterances = []
+        for u in utterances[:max_utterances]:
+            speaker = u.get("speaker", "")
+            text = u.get("text", "")
+            if text:
+                formatted_utterances.append(f"{speaker}: {text}")
+        dialogue_examples_str = "\n".join(formatted_utterances)
+    else:
+        dialogue_examples_str = "(없음)"
     
     # VectorDB 검색 (챌린지 생성용) - LLM으로 키워드 생성 후 검색
     expert_advice_section = ""
@@ -424,6 +444,7 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "style_analysis": style_str,
             "patterns": patterns_str,
             "key_moments": key_moments_str,
+            "dialogue_examples": dialogue_examples_str,
             "expert_advice_section": expert_advice_section,
         })
         content = getattr(res, "content", "") or str(res)

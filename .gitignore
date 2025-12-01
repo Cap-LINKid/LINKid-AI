@@ -75,7 +75,8 @@ langchain_cache/
 # ---------------------------
 models/
 model_weights/
-data/
+data/ddl
+data/expert_advice2
 tmp/
 temp/
 outputs/

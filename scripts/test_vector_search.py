@@ -60,11 +60,11 @@ def test_direct_sql_search(query_text: str, top_k: int = 5):
         sql = f"""
         SELECT 
             id,
-            title,
-            source,
-            author,
-            advice_type,
             category,
+            age,
+            keyword,
+            type,
+            reference,
             1 - (embedding <=> %s::vector) as similarity_score
         FROM expert_advice
         ORDER BY embedding <=> %s::vector
@@ -80,13 +80,13 @@ def test_direct_sql_search(query_text: str, top_k: int = 5):
         print("-" * 60)
         
         for row in results:
-            id_val, title, source, author, advice_type, category, similarity = row
+            id_val, category, age, keyword, type_value, reference, similarity = row
             print(f"\nID: {id_val}")
-            print(f"제목: {title}")
-            print(f"출처: {source}")
-            print(f"저자: {author}")
-            print(f"타입: {advice_type}")
             print(f"카테고리: {category}")
+            print(f"연령대(Age): {age}")
+            print(f"키워드: {keyword}")
+            print(f"타입(Type): {type_value}")
+            print(f"출처(Reference): {reference}")
             print(f"유사도: {similarity:.4f}")
             print("-" * 60)
         
@@ -122,10 +122,11 @@ def test_langchain_search(query_text: str, top_k: int = 5):
         
         for result in results:
             print(f"\n제목: {result['title']}")
-            print(f"출처: {result['source']}")
-            print(f"저자: {result['author']}")
-            print(f"타입: {result['advice_type']}")
             print(f"카테고리: {result['category']}")
+            print(f"연령대(Age): {result['metadata'].get('age', '')}")
+            print(f"타입(Type): {result['advice_type']}")
+            print(f"키워드: {result['metadata'].get('keyword', '')}")
+            print(f"출처(Reference): {result['source']}")
             print(f"유사도: {result['relevance_score']:.4f}")
             print(f"내용 미리보기: {result['content'][:100]}...")
             print("-" * 60)
@@ -144,35 +145,19 @@ def test_filtered_search(query_text: str):
     print("필터링 검색 테스트")
     print("=" * 60)
     
-    # 패턴 조언만 검색
-    print("\n[테스트 1] 패턴 조언만 검색")
+    # 타입(Type)으로 필터링 예시
+    print("\n[테스트 1] Type='Negative' 필터 검색")
     try:
         results = search_expert_advice(
             query=query_text,
             top_k=3,
             filters={
-                "advice_type": "pattern_advice"
+                "type": "Negative"
             }
         )
         
         for result in results:
-            print(f"- {result['title']} (유사도: {result['relevance_score']:.4f})")
-    except Exception as e:
-        print(f"오류: {e}")
-    
-    # 특정 패턴명으로 필터링
-    print("\n[테스트 2] '긍정기회놓치기' 패턴 조언 검색")
-    try:
-        results = search_expert_advice(
-            query=query_text,
-            top_k=3,
-            filters={
-                "pattern_names": ["긍정기회놓치기"]
-            }
-        )
-        
-        for result in results:
-            print(f"- {result['title']} (유사도: {result['relevance_score']:.4f})")
+            print(f"- {result['title']} (Type: {result['advice_type']}, 유사도: {result['relevance_score']:.4f})")
     except Exception as e:
         print(f"오류: {e}")
 
@@ -195,16 +180,19 @@ def check_database_status():
         count = cursor.fetchone()[0]
         print(f"\n전문가 조언 데이터 개수: {count}")
         
-        # advice_type별 개수
-        cursor.execute("""
-            SELECT advice_type, COUNT(*) 
-            FROM expert_advice 
-            GROUP BY advice_type
-            ORDER BY COUNT(*) DESC
-        """)
-        print("\n타입별 개수:")
-        for row in cursor.fetchall():
-            print(f"  - {row[0]}: {row[1]}개")
+        # type별 개수 (새 스키마 기준)
+        try:
+            cursor.execute("""
+                SELECT type, COUNT(*) 
+                FROM expert_advice 
+                GROUP BY type
+                ORDER BY COUNT(*) DESC
+            """)
+            print("\nType별 개수:")
+            for row in cursor.fetchall():
+                print(f"  - {row[0] or '(NULL)'}: {row[1]}개")
+        except Exception as e:
+            print("\nType별 개수를 가져오는 데 실패했습니다:", e)
         
         # 벡터 차원 확인 (pgvector의 vector_dims 함수 사용)
         try:

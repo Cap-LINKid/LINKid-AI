@@ -75,19 +75,19 @@ def search_expert_advice(
         top_k: 반환할 결과 수
         threshold: 유사도 임계값 (0.0 ~ 1.0, 높을수록 유사해야 함)
         filters: 메타데이터 필터 딕셔너리
-            - advice_type: 조언 타입 필터 (문자열 또는 리스트)
-            - pattern_names: 패턴명 배열 필터 (리스트)
-            - dpics_labels: DPICS 라벨 배열 필터 (리스트)
+            - type / advice_type: 조언 타입 필터 (문자열 또는 리스트)
             - category: 카테고리 필터
+            - age: 연령대 필터
+            - pattern_names: 기존 호환용. Related_DPICS 문자열에 포함 여부로 필터
         table_name: 테이블명 (기본값: 'expert_advice')
     
     Returns:
         검색 결과 리스트, 각 항목은 다음 필드를 포함:
-        - title: 제목
-        - content: 내용
-        - source: 출처
-        - author: 저자
-        - advice_type: 조언 타입
+        - title: 제목 (카테고리/키워드 기반으로 생성된 간단한 제목)
+        - content: 본문 내용 (Advice 컬럼)
+        - source: 출처 (Reference 컬럼)
+        - author: 저자 (현재는 비어 있음)
+        - advice_type: 조언 타입 (type 컬럼)
         - relevance_score: 유사도 점수 (0.0 ~ 1.0)
         - metadata: 전체 메타데이터
     """
@@ -113,48 +113,36 @@ def search_expert_advice(
         filter_params = []
         
         if filters:
-            # advice_type 필터
-            if "advice_type" in filters and filters["advice_type"]:
-                advice_types = filters["advice_type"]
+            # type / advice_type 필터 (새 스키마에서는 type 컬럼 사용)
+            advice_types = filters.get("type") or filters.get("advice_type")
+            if advice_types:
                 if isinstance(advice_types, str):
                     advice_types = [advice_types]
-                if advice_types:
-                    placeholders = ",".join(["%s"] * len(advice_types))
-                    filter_conditions.append(f"advice_type = ANY(ARRAY[{placeholders}])")
-                    filter_params.extend(advice_types)
-            
+                placeholders = ",".join(["%s"] * len(advice_types))
+                filter_conditions.append(f"type = ANY(ARRAY[{placeholders}])")
+                filter_params.extend(advice_types)
+
             # category 필터
             if "category" in filters and filters["category"]:
                 filter_conditions.append("category = %s")
                 filter_params.append(filters["category"])
-            
-            # pattern_names 필터 (배열에 포함) - OR 조건
+
+            # age 필터
+            if "age" in filters and filters["age"]:
+                filter_conditions.append("age = %s")
+                filter_params.append(filters["age"])
+
+            # pattern_names 호환 필터: Related_DPICS 문자열에 포함 여부로 처리 (OR 조건)
             if "pattern_names" in filters and filters["pattern_names"]:
                 pattern_names = filters["pattern_names"]
                 if isinstance(pattern_names, str):
                     pattern_names = [pattern_names]
                 if pattern_names:
-                    # 하나라도 포함되면 됨 (OR 조건)
-                    pattern_conditions = []
+                    like_conditions = []
                     for pattern_name in pattern_names:
-                        pattern_conditions.append("%s = ANY(pattern_names)")
-                        filter_params.append(pattern_name)
-                    if pattern_conditions:
-                        filter_conditions.append("(" + " OR ".join(pattern_conditions) + ")")
-            
-            # dpics_labels 필터 (배열에 포함) - OR 조건
-            if "dpics_labels" in filters and filters["dpics_labels"]:
-                dpics_labels = filters["dpics_labels"]
-                if isinstance(dpics_labels, str):
-                    dpics_labels = [dpics_labels]
-                if dpics_labels:
-                    # 하나라도 포함되면 됨 (OR 조건)
-                    label_conditions = []
-                    for label in dpics_labels:
-                        label_conditions.append("%s = ANY(dpics_labels)")
-                        filter_params.append(label)
-                    if label_conditions:
-                        filter_conditions.append("(" + " OR ".join(label_conditions) + ")")
+                        like_conditions.append("related_dpics ILIKE %s")
+                        filter_params.append(f"%{pattern_name}%")
+                    filter_conditions.append("(" + " OR ".join(like_conditions) + ")")
         
         # WHERE 절 구성
         where_clause = ""
@@ -166,15 +154,14 @@ def search_expert_advice(
         sql = f"""
         SELECT 
             id,
-            title,
-            content,
-            summary,
-            source,
-            author,
-            advice_type,
             category,
-            pattern_names,
-            dpics_labels,
+            age,
+            related_dpics,
+            keyword,
+            situation,
+            type,
+            advice,
+            reference,
             1 - (embedding <=> %s::vector) as similarity_score
         FROM {table_name}
         {where_clause}
@@ -190,31 +177,62 @@ def search_expert_advice(
         # 결과 포맷팅
         formatted_results = []
         for row in results:
-            (id_val, title, content, summary, source, author, 
-             advice_type, category, pattern_names, dpics_labels, similarity_score) = row
-            
+            (
+                id_val,
+                category,
+                age,
+                related_dpics,
+                keyword,
+                situation,
+                type_value,
+                advice_text,
+                reference,
+                similarity_score,
+            ) = row
+
+            # 기존 호출부 호환을 위한 필드 매핑
+            # - title: 카테고리와 키워드/상황을 조합해 간단한 제목 생성
+            title = category or ""
+            extra = keyword or situation
+            if extra:
+                if title:
+                    title = f"[{category}] {extra}"
+                else:
+                    title = extra
+            if not title:
+                title = "전문가 조언"
+
+            content = advice_text or ""
+            source = reference or ""
+            author = ""  # 현재 스키마에는 별도 author 컬럼이 없음
+            advice_type = type_value or ""
+
             if similarity_score >= threshold:
                 formatted_results.append({
                     "id": id_val,
-                    "title": title or "",
-                    "content": content or "",
-                    "summary": summary or "",
-                    "source": source or "",
-                    "author": author or "",
-                    "advice_type": advice_type or "",
+                    "title": title,
+                    "content": content,
+                    "summary": "",
+                    "source": source,
+                    "author": author,
+                    "advice_type": advice_type,
                     "category": category or "",
-                    "pattern_names": pattern_names or [],
-                    "dpics_labels": dpics_labels or [],
+                    "pattern_names": [],  # 새 스키마에는 별도 배열 컬럼이 없으므로 빈 리스트
+                    "dpics_labels": [],
                     "relevance_score": round(float(similarity_score), 3),
                     "metadata": {
                         "id": id_val,
                         "title": title,
                         "advice_type": advice_type,
                         "category": category,
-                        "pattern_names": pattern_names,
-                        "dpics_labels": dpics_labels,
+                        "pattern_names": [],
+                        "dpics_labels": [],
                         "source": source,
-                        "author": author
+                        "author": author,
+                        "age": age,
+                        "related_dpics": related_dpics,
+                        "keyword": keyword,
+                        "situation": situation,
                     }
                 })
         

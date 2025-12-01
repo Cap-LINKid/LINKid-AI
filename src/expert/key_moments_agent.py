@@ -157,11 +157,7 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 expert_advice = search_expert_advice(
                     query=query,
                     top_k=2,
-                    threshold=0.7,
-                    filters={
-                        "advice_type": ["pattern_advice", "coaching"],
-                        "pattern_names": [pattern_names[0]]
-                    }
+                    threshold=0.1
                 )
                 
                 if expert_advice:
@@ -322,11 +318,7 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         expert_advice = search_expert_advice(
                             query=query,
                             top_k=int(os.getenv("VECTOR_SEARCH_TOP_K_NEEDS_IMPROVEMENT", "2")),
-                            threshold=float(os.getenv("VECTOR_SEARCH_THRESHOLD", "0.3")),  # 기본값 0.3으로 변경
-                            filters={
-                                "advice_type": ["pattern_advice", "coaching"],
-                                "pattern_names": [extracted_pattern] if extracted_pattern else None
-                            }
+                            threshold=float(os.getenv("VECTOR_SEARCH_THRESHOLD", "0.3")) # 기본값 0.3으로 변경
                         )
                         
                         print(f"[VectorDB] 검색 결과 개수: {len(expert_advice)}")

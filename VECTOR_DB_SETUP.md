@@ -138,18 +138,24 @@ from src.utils.vector_store import search_expert_advice
 
 # 검색 테스트
 results = search_expert_advice(
-    query="긍정기회놓치기 패턴 개선 방법",
+    query="훈육에서 공포를 주지 않고 단호하게 말하는 법",
     top_k=3,
     filters={
-        "advice_type": ["pattern_advice"],
-        "pattern_names": ["긍정기회놓치기"]
+        # 새 스키마 기준 필터 예시
+        "type": ["Negative"],       # Type 컬럼 (예: Positive / Negative / Additional 등)
+        "age": "유아~초등",          # Age 컬럼
+        # pattern_names는 Related_DPICS 문자열에 부분 일치로 매핑됨
+        "pattern_names": ["11 Negative", "15 Negative"]
     }
 )
 
 for result in results:
     print(f"제목: {result['title']}")
-    print(f"출처: {result['source']}")
-    print(f"저자: {result['author']}")
+    print(f"카테고리: {result['category']}")
+    print(f"연령대: {result['metadata'].get('age', '')}")
+    print(f"타입: {result['advice_type']}")
+    print(f"키워드: {result['metadata'].get('keyword', '')}")
+    print(f"출처(Reference): {result['source']}")
     print(f"유사도: {result['relevance_score']}")
     print("-" * 60)
 ```
@@ -159,14 +165,20 @@ for result in results:
 -- 데이터 개수 확인
 SELECT COUNT(*) FROM expert_advice;
 
--- 샘플 데이터 확인
-SELECT title, source, author, advice_type 
-FROM expert_advice 
+-- 샘플 데이터 확인 (새 스키마 기준)
+SELECT 
+    id,
+    category,
+    age,
+    keyword,
+    type,
+    reference
+FROM expert_advice
 LIMIT 5;
 
 -- 벡터 차원 확인
-SELECT array_length(embedding::float[], 1) as dimension 
-FROM expert_advice 
+SELECT vector_dims(embedding) as dimension
+FROM expert_advice
 LIMIT 1;
 ```
 

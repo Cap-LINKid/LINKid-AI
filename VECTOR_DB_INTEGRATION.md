@@ -131,11 +131,16 @@ def build_needs_improvement_query(moment: Dict[str, Any]) -> str:
     return query
 ```
 
-**메타데이터 필터링**:
+**메타데이터 필터링 (새 스키마 기준)**:
 ```python
 filters = {
-    "advice_type": ["pattern_advice", "coaching"],  # 패턴 조언 또는 코칭 팁
-    "pattern_names": [pattern_name] if pattern_name else None,  # 패턴명 일치
+    # type / advice_type: DB의 type 컬럼에 매핑
+    "type": ["Negative", "Positive"],
+    # category / age 필터
+    "category": "훈육",
+    "age": "유아~초등",
+    # pattern_names: Related_DPICS 문자열에 부분 일치 (예: "11 Negative", "15 Negative")
+    "pattern_names": [pattern_name] if pattern_name else None,
 }
 ```
 
@@ -174,12 +179,13 @@ def build_challenge_query(patterns: List[Dict], key_moments: Dict) -> str:
     return query
 ```
 
-**메타데이터 필터링**:
+**메타데이터 필터링 (새 스키마 기준)**:
 ```python
 filters = {
-    "advice_type": ["challenge_guide", "pattern_advice"],  # 챌린지 가이드 우선
+    # 챌린지/패턴 조언 등 타입 기반 필터
+    "type": ["Negative", "Additional"],
+    # 가장 빈번한 패턴 이름을 Related_DPICS에 부분 일치로 사용
     "pattern_names": [most_frequent_pattern] if most_frequent_pattern else None,
-    "related_challenges": None,  # 관련 챌린지 필터링
 }
 ```
 
@@ -304,56 +310,28 @@ filters = {
 
 ## 코드 예시
 
-### VectorDB 검색 함수
+### VectorDB 검색 함수 (요약)
+
+실제 구현은 `src/utils/vector_store.py`의 `search_expert_advice`를 사용하며,
+다음과 같이 **쿼리 + 필터 + 유사도 임계값**을 인자로 받습니다.
 
 ```python
-# src/utils/vector_store.py
-from typing import List, Dict, Any, Optional
-from langchain_postgres import PGVector
-from langchain_openai import OpenAIEmbeddings
+from typing import Any, Dict, List, Optional
+from src.utils.vector_store import search_expert_advice
 
-def search_expert_advice(
-    query: str,
-    top_k: int = 3,
-    threshold: float = 0.7,
-    filters: Optional[Dict[str, Any]] = None
-) -> List[Dict[str, Any]]:
-    """
-    전문가 조언 검색
-    
-    Args:
-        query: 검색 쿼리
-        top_k: 반환할 결과 수
-        threshold: 유사도 임계값
-        filters: 메타데이터 필터 (pattern_names, dpics_labels, advice_type 등)
-    
-    Returns:
-        검색 결과 리스트 (title, content, source, relevance_score 포함)
-    """
-    # pgVector 연결
-    vector_store = get_vector_store()
-    
-    # 검색 실행
-    results = vector_store.similarity_search_with_score(
-        query,
-        k=top_k,
-        filter=filters
-    )
-    
-    # 결과 포맷팅
-    formatted_results = []
-    for doc, score in results:
-        if score >= threshold:
-            formatted_results.append({
-                "title": doc.metadata.get("title", ""),
-                "content": doc.page_content,
-                "source": doc.metadata.get("source", ""),
-                "author": doc.metadata.get("author", ""),  # NEW
-                "advice_type": doc.metadata.get("advice_type", ""),
-                "relevance_score": float(score)
-            })
-    
-    return formatted_results
+results: List[Dict[str, Any]] = search_expert_advice(
+    query="훈육에서 공포를 주지 않고 단호하게 말하는 법",
+    top_k=3,
+    threshold=0.3,
+    filters={
+        "type": ["Negative"],
+        "age": "유아~초등",
+        "pattern_names": ["11 Negative", "15 Negative"],  # Related_DPICS 부분 일치
+    },
+)
+
+for r in results:
+    print(r["title"], r["relevance_score"])
 ```
 
 ### key_moments_agent 통합
