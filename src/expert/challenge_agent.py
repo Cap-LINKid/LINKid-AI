@@ -37,6 +37,7 @@ _SUMMARY_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
             "You are an expert analyzing parent-child interactions. "
             "Generate a brief summary (in Korean) describing the situation where the parent performed the specific action. "
             "The summary should be concise (1-2 sentences) and describe what happened in this interaction moment. "
+            "The Korean summary MUST be written in polite formal speech (존댓말, e.g., '~합니다', '~합니다.'). "
             "Return ONLY the summary text, no extra explanation."
         ),
     ),
