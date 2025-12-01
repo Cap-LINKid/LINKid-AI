@@ -70,10 +70,15 @@ _KEY_MOMENTS_PROMPT = ChatPromptTemplate.from_messages([
             "- 'needs_improvement'는 명확히 문제가 있는 경우만 포함하세요 (예: 직접적인 명령형('해라', '해야 해'), 비판적 발화, 공감 부족).\n"
             "- 애매한 경우는 반드시 'positive'로 분류하거나 제외하세요.\n\n"
             "각 순간에 대해 발화에서 실제 대화(발화자와 한국어 원문 텍스트)를 포함하세요. "
-            "대화는 핵심 순간을 구성하는 연속된 발화들의 리스트여야 합니다. "
-            "'needs_improvement' 순간의 경우, 'reason'과 'better_response'를 제공하세요. "
-            "전문가 조언이 제공된 경우, 반드시 해당 조언을 참고하여 'reason' 설명과 'better_response' 제안을 생성하세요. "
-            "전문가 조언의 핵심 내용을 반영하여 더 정확하고 구체적인 이유 설명과 개선 방안을 제시하세요. "
+            "대화는 핵심 순간을 구성하는 연속된 발화들의 리스트여야 합니다.\n\n"
+            "'needs_improvement' 순간의 경우, 반드시 다음을 모두 포함해야 합니다:\n"
+            "- 'reason': 왜 이 순간이 문제인지, 어떤 말/행동이 반복되는지, 아이가 어떻게 느꼈을지에 대한 구체적인 설명\n"
+            "- 'better_response': 위 대화 내용을 바탕으로, 부모가 실제로 어떤 말과 태도로 바꾸어 말해야 하는지에 대한 구체적인 예시\n"
+            "또한, 나중에 요약(summary)과 코칭 챌린지를 만들 때 이 'reason'과 'better_response'가 핵심 근거로 사용되므로, "
+            "가능한 한 **구체적인 예시 문장**과 **상황 설명**을 포함하여 작성하세요.\n\n"
+            "전문가 조언(expert_advice_section)이 제공된 경우, 반드시 해당 조언을 참고하여 'reason' 설명과 'better_response' 제안을 생성하세요. "
+            "전문가 조언의 핵심 문장(예: \"너 때문에 내가 떠날 거야\"는 유기 불안을 자극한다)을 현재 대화 내용과 연결하여, "
+            "왜 이 발화가 문제가 되는지와 어떻게 바꾸어야 하는지를 분명하게 드러내세요.\n"
             "'pattern_examples'의 경우, 패턴 이름, 발생 횟수, 문제 설명, 제안된 응답을 포함하세요. "
             "모든 설명과 응답은 한국어로 작성하세요."
         ),
@@ -143,6 +148,7 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
     
     # VectorDB에서 전문가 조언 검색 (프롬프트에 포함)
     expert_advice_section = ""
+    prompt_reference_description = ""
     # USE_VECTOR_DB가 명시적으로 false가 아니면 검색 시도 (기본값: true)
     use_vector_db_env = os.getenv("USE_VECTOR_DB", "true").lower()
     use_vector_db = use_vector_db_env != "false"
@@ -161,10 +167,37 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 )
                 
                 if expert_advice:
-                    expert_advice_section = "전문가 조언 참고:\n" + "\n".join([
-                        f"- {advice['title']}: {advice['content'][:150]}..."
-                        for advice in expert_advice
-                    ])
+                    expert_advice_section = "전문가 조언 참고:\n" + "\n".join(
+                        [
+                            f"- {advice['title']}: {advice['content'][:150]}..."
+                            for advice in expert_advice
+                        ]
+                    )
+
+                    # positive / summary에서 참고할 레퍼런스 간단 요약 (최대 2개)
+                    prompt_refs = []
+                    seen_refs = set()
+                    for advice in expert_advice:
+                        title = (advice.get("title") or "").strip()
+                        reference = (advice.get("source") or "").strip()  # DB의 reference 컬럼이 source로 매핑됨
+                        if not title:
+                            continue
+                        key = f"{title}|{reference}"
+                        if key in seen_refs:
+                            continue
+                        seen_refs.add(key)
+
+                        if reference:
+                            ref_text = f"{title} ({reference})"
+                        else:
+                            ref_text = title
+
+                        prompt_refs.append(ref_text)
+                        if len(prompt_refs) >= 2:
+                            break
+
+                    if prompt_refs:
+                        prompt_reference_description = "; ".join(prompt_refs)
         except Exception as e:
             print(f"VectorDB 검색 오류 (프롬프트): {e}")
             expert_advice_section = ""
@@ -217,7 +250,9 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 positive_list.append({
                     "dialogue": dialogue_with_ko,
                     "reason": moment.reason,
-                    "pattern_hint": moment.pattern_hint
+                    "pattern_hint": moment.pattern_hint + " 패턴 발견",
+                    # VectorDB에서 찾은 레퍼런스 요약 (expert_advice_section 기반, 최대 2개)
+                    "reference_description": prompt_reference_description
                 })
             
             # needs_improvement 변환 (한국어 원문 사용) + VectorDB 검색

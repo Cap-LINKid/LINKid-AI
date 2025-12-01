@@ -91,9 +91,9 @@ def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
         # challenge_evaluation 업데이트 (새로운 방식: challenge_eval_node에서 직접 반환)
         if not summary.get("challenge_evaluations") and challenge_evaluations:
             summary["challenge_evaluations"] = challenge_evaluations
-            # 하위 호환성을 위해 첫 번째 챌린지도 challenge_evaluation으로 설정
-            if challenge_evaluations:
-                summary["challenge_evaluation"] = challenge_evaluations[0]
+            # # 하위 호환성을 위해 첫 번째 챌린지도 challenge_evaluation으로 설정
+            # if challenge_evaluations:
+            #     summary["challenge_evaluation"] = challenge_evaluations[0]
     
     # coaching_plan에서 coaching_plan 추출 ({"coaching_plan": {...}} 형식일 수 있음)
     actual_coaching_plan = coaching_plan
