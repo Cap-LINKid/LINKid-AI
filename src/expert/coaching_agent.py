@@ -47,38 +47,49 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
         "system",
         (
             "You are a professional parenting coach. "
-            "Create a personalized coaching plan based on the dialogue analysis. "
+            "Create a personalized coaching plan based on:\n"
+            "- 분석된 패턴 정보 (patterns)\n"
+            "- 핵심 순간 및 이유 (key_moments)\n"
+            "- 실제 대화 예시 (dialogue_examples)\n"
+            "- VectorDB에서 가져온 전문가 레퍼런스와 조언 (expert_advice_section)\n\n"
             "Return ONLY a JSON object with the following structure:\n"
             "{{\n"
-            '  "summary": "요약 텍스트 (2-3문장)",\n'
-            '  "challenge": {{\n'
-            '    "title": "챌린지 제목 (패턴명 + 횟수 + 도전)",\n'
-            '    "goal": "챌린지 목표 (1문장)",\n'
-            '    "actions": ["액션1", "액션2", "액션3"],\n'
-            '    "rationale": "챌린지 생성 이유 (패턴 발생 상황, 개선 필요성, 전문가 조언 참고)"\n'
+            '  \"summary\": \"요약 텍스트 (2-4문장)\",\n'
+            '  \"challenge\": {{\n'
+            '    \"title\": \"챌린지 제목 (가장 중요한 부정적 패턴 + 맥락을 드러내는 짧은 문구)\",\n'
+            '    \"goal\": \"챌린지 목표 (1문장, 어떤 대화/행동을 어떻게 바꾸는지 명확히)\",\n'
+            '    \"actions\": [\"액션1\", \"액션2\", \"액션3\"],\n'
+            '    \"rationale\": \"챌린지 생성 이유 (필요한 경우에만, 패턴·대화·레퍼런스 근거 요약)\"\n'
             "  }},\n"
-            '  "qa_tips": [\n'
-            '    {{"question": "질문1", "answer": "답변1"}},\n'
-            '    {{"question": "질문2", "answer": "답변2"}}\n'
+            '  \"qa_tips\": [\n'
+            '    {{\"question\": \"질문1\", \"answer\": \"답변1\"}},\n'
+            '    {{\"question\": \"질문2\", \"answer\": \"답변2\"}}\n'
             "  ]\n"
-            "}}\n"
-            "The challenge should focus on the most frequent pattern. "
-            "Actions should be specific and actionable, and should incorporate the expert advice provided. "
-            "The challenge MUST be grounded in the concrete dialogue examples provided (utterances and key moments), "
-            "referring to specific repeated behaviors, phrases, and situations rather than generic parenting advice. "
-            "Whenever possible, connect each action to a specific type of interaction from the dialogue (e.g., 용돈, 물건 뺏기, 고집 부림 등). "
-            "IMPORTANT: When expert_advice_section is provided, you MUST use the specific advice and strategies from it to create the challenge. "
-            "The challenge goal, actions, and rationale should be based on the expert advice provided. "
-            "If expert_advice_section contains pattern-specific advice, prioritize using that advice for the corresponding pattern. "
-            "The rationale field should ONLY be included if expert advice references are provided in the expert_advice_section. "
-            "If expert_advice_section is empty or no references are available, do NOT create a rationale field (leave it empty or omit it). "
-            "When expert advice is available, include references in the format: '참고: [제목] ([저자], [출처])'. "
-            "IMPORTANT: Replace [제목], [저자], [출처] with actual values from expert_advice_section. "
-            "Do NOT use literal text '[저자]' or '[출처]' - use the actual author name and source. "
-            "If author or source information is not available, omit that part (e.g., '참고: [제목]' or '참고: [제목] ([저자])'). "
-            "Do NOT make up or hallucinate references. Only use references that are explicitly provided in the expert_advice_section. "
-            "QA tips should address common questions about the pattern based on the expert advice and the specific dialogue context. "
-            "All text in Korean. No extra text, only JSON."
+            "}}\n\n"
+            "요구사항:\n"
+            "1) 챌린지는 **가장 빈번하고 중요한 부정적 패턴**을 중심으로 만들 것.\n"
+            "2) 각 action은 반드시 다음 세 가지를 동시에 반영해야 함:\n"
+            "   - 패턴 정보 (예: '비판적 반응', '과도한 지시' 등)\n"
+            "   - 실제 대화에서 반복된 구체 장면 (예: 용돈, 물건 뺏기, 고집 부림, 협박 발화 등)\n"
+            "   - 전문가 레퍼런스에서 제시한 구체적 방법 (말문장 예시, 태도 변화, 훈육 원칙 등)\n"
+            "3) summary에는 반드시 다음이 포함되어야 함:\n"
+            "   - 왜 이 챌린지를 선택했는지 (어떤 패턴과 상황이 반복되었는지)\n"
+            "   - 최소 1개 이상의 **구체적인 예시**:\n"
+            "     - 실제 대화 문장 예시 1개 이상 (부모/아이 발화)\n"
+            "       또는\n"
+            "     - 전문가 레퍼런스 내용 요약 1개 이상 (어떤 조언/원칙을 따르는지)\n"
+            "   예) \"부모가 아이에게 '너 때문에 힘들어'라고 반복해서 말하는 비판적 화법이 관찰되어, "
+            "전문가 조언에서 제안한 '행동만 분리해서 지적하기' 원칙을 적용한 챌린지를 설계했습니다.\"\n"
+            "4) rationale은 다음 조건에서만 포함:\n"
+            "   - expert_advice_section에 실제 레퍼런스가 존재할 때\n"
+            "   - 패턴·대화·레퍼런스 간 연결 근거를 1-2문장으로 정리할 때\n"
+            "   레퍼런스 인용 시에는 LLM이 임의로 만들지 말고, expert_advice_section 안에 있는 **실제 제목/내용**만 사용할 것.\n"
+            "5) QA tips는 다음을 다루도록 구성:\n"
+            "   - 이 패턴을 가진 부모가 자주 할 법한 질문 2개 이상\n"
+            "   - 각 질문에 대해, 대화 예시와 전문가 레퍼런스를 바탕으로 한 현실적인 답변\n"
+            "6) 절대 새로운 이론·연구·저자를 상상해서 만들지 말 것. "
+            "expert_advice_section에 없는 정보는 인용하지 말 것.\n"
+            "7) 모든 텍스트는 한국어로 작성하고, JSON 이외의 추가 설명은 포함하지 말 것."
         ),
     ),
     (
@@ -89,12 +100,13 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "탐지된 패턴:\n{patterns}\n\n"
             "핵심 순간:\n{key_moments}\n\n"
             "대표 대화 예시:\n{dialogue_examples}\n\n"
-            "{expert_advice_section}\n\n"
-            "위 정보를 바탕으로 코칭 계획을 JSON 형식으로 작성해주세요. "
-            "챌린지는 반드시 위 대화 예시와 패턴에서 반복적으로 나타난 구체적인 상황(예: 돈, 물건 뺏기, 고집 부림 등)을 직접 다루어야 합니다. "
-            "전문가 조언을 참고하여 챌린지의 actions와 goal을 구체적으로 작성하되, 실제 대화 장면에서 부모와 아이가 어떻게 행동을 바꿀지에 초점을 맞추세요.\n"
-            "중요: expert_advice_section이 비어있거나 '(없음)'인 경우, rationale 필드를 생성하지 마세요. "
-            "rationale은 반드시 expert_advice_section에 제공된 레퍼런스가 있을 때만 포함하세요."
+            "전문가 레퍼런스 및 조언 (VectorDB 검색 결과):\n{expert_advice_section}\n\n"
+            "위 정보를 바탕으로 코칭 계획을 JSON 형식으로 작성해주세요.\n"
+            "- 챌린지는 반드시 위 **부정적 패턴**과 **구체적인 대화 장면**에 직접 대응해야 합니다.\n"
+            "- actions와 goal은 전문가 조언을 실제 부모-자녀 대화에 적용하는 형태로, "
+            "구체적인 말문장/행동 수준까지 내려가서 작성해주세요.\n"
+            "- summary에는 왜 이 챌린지를 생성했는지와, 대화 내용 또는 레퍼런스 내용 중 "
+            "최소 한 가지 이상의 구체적인 예시를 반드시 포함하세요."
         ),
     ),
 ])
