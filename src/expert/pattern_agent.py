@@ -8,7 +8,6 @@ from typing import Dict, Any, List
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
-from src.utils.pattern_manager import get_negative_pattern_names
 
 
 def _load_pattern_definitions() -> Dict[str, Any]:
@@ -31,29 +30,82 @@ def _load_pattern_definitions() -> Dict[str, Any]:
 _PATTERN_DEFINITIONS = _load_pattern_definitions()
 
 
-def _build_pattern_list_for_prompt() -> str:
-    """LLM 프롬프트용 패턴 목록 생성"""
-    patterns = []
+def _build_pattern_details_for_prompt() -> str:
+    """LLM 프롬프트용 패턴 상세 정보 생성 (정의, 예시 포함)"""
+    sections = []
     
-    # Positive patterns
-    for p in _PATTERN_DEFINITIONS.get("positive_patterns", []):
-        name = p.get("name", "")
-        english = p.get("english_name", "")
-        patterns.append(f"'{name}' ({english})")
+    # 긍정적 패턴 섹션
+    positive_patterns = _PATTERN_DEFINITIONS.get("positive_patterns", [])
+    if positive_patterns:
+        sections.append("=== 긍정적 패턴 (Positive Patterns) ===")
+        for p in positive_patterns:
+            name = p.get("name", "")
+            english = p.get("english_name", "")
+            definition = p.get("definition", "")
+            dpics_code = p.get("dpics_code", "")
+            examples = p.get("examples", [])
+            
+            pattern_info = f"\n- '{name}' ({english})"
+            if dpics_code:
+                # RF는 RD로 통일 (dpics_electra.py 기준)
+                if dpics_code == "RF":
+                    pattern_info += f" [DPICS: RD (RF와 동일)]"
+                else:
+                    pattern_info += f" [DPICS: {dpics_code}]"
+            if definition:
+                pattern_info += f"\n  정의: {definition}"
+            if examples:
+                pattern_info += f"\n  예시: {', '.join(examples[:2])}"  # 최대 2개 예시
+            sections.append(pattern_info)
     
-    # Negative patterns
-    for p in _PATTERN_DEFINITIONS.get("negative_patterns", []):
-        name = p.get("name", "")
-        english = p.get("english_name", "")
-        patterns.append(f"'{name}' ({english})")
+    # 부정적 패턴 섹션
+    negative_patterns = _PATTERN_DEFINITIONS.get("negative_patterns", [])
+    if negative_patterns:
+        sections.append("\n=== 부정적 패턴 (Negative Patterns) ===")
+        for p in negative_patterns:
+            name = p.get("name", "")
+            english = p.get("english_name", "")
+            definition = p.get("definition", "")
+            dpics_code = p.get("dpics_code", "")
+            examples = p.get("examples", [])
+            
+            pattern_info = f"\n- '{name}' ({english})"
+            if dpics_code:
+                if isinstance(dpics_code, list):
+                    # 리스트인 경우 각 코드 처리
+                    codes = []
+                    for code in dpics_code:
+                        if code == "RF":
+                            codes.append("RD (RF와 동일)")
+                        else:
+                            codes.append(code)
+                    pattern_info += f" [DPICS: {', '.join(codes)}]"
+                else:
+                    if dpics_code == "RF":
+                        pattern_info += f" [DPICS: RD (RF와 동일)]"
+                    else:
+                        pattern_info += f" [DPICS: {dpics_code}]"
+            if definition:
+                pattern_info += f"\n  정의: {definition}"
+            if examples:
+                pattern_info += f"\n  예시: {', '.join(examples[:2])}"  # 최대 2개 예시
+            sections.append(pattern_info)
     
-    # Additional patterns
-    for p in _PATTERN_DEFINITIONS.get("additional_patterns", []):
-        name = p.get("name", "")
-        english = p.get("english_name", "")
-        patterns.append(f"'{name}' ({english})")
+    # 추가 패턴 섹션
+    additional_patterns = _PATTERN_DEFINITIONS.get("additional_patterns", [])
+    if additional_patterns:
+        sections.append("\n=== 추가 패턴 (Additional Patterns) ===")
+        for p in additional_patterns:
+            name = p.get("name", "")
+            english = p.get("english_name", "")
+            definition = p.get("definition", "")
+            
+            pattern_info = f"\n- '{name}' ({english})"
+            if definition:
+                pattern_info += f"\n  정의: {definition}"
+            sections.append(pattern_info)
     
-    return ", ".join(patterns)
+    return "\n".join(sections)
 
 
 _PATTERN_PROMPT = ChatPromptTemplate.from_messages([
@@ -61,19 +113,30 @@ _PATTERN_PROMPT = ChatPromptTemplate.from_messages([
         "system",
         (
             "You are an expert in analyzing parent-child interaction patterns. "
-            "Detect specific interaction patterns from labeled utterances. "
-            f"Common patterns include: {_build_pattern_list_for_prompt()}. "
-            "\nDPICS label meanings (dpics_electra.py의 라벨 매핑 기준):\n"
+            "Detect specific interaction patterns from labeled utterances using the pattern definitions provided below. "
+            "\n"
+            f"{_build_pattern_details_for_prompt()}"
+            "\n\n"
+            "DPICS label meanings (dpics_electra.py의 라벨 매핑 기준):\n"
             "- RD: Reflective Statement (반영적 경청) - ALWAYS positive, shows understanding and empathy\n"
+            "  Note: RF and RD are the same (both refer to Reflective Statement)\n"
             "- PR: Praise (구체적 칭찬) - positive, specific praise (Labeled/Unlabeled/Prosocial Talk)\n"
             "- BD: Behavior Description (행동 묘사) - positive, neutral description of behavior\n"
             "- NEG: Negative Talk (비판적 반응) - negative, critical response\n"
             "- Q: Question (질문) - context dependent\n"
             "- CMD: Command (명령) - can be negative if excessive\n"
             "- NT: Neutral Talk (중립적 대화)\n"
-            "\nReturn ONLY a JSON array of objects with: {{pattern_name, description, utterance_indices, severity}}. "
-            "severity: 'low', 'medium', 'high'. "
-            "pattern_name should match one of the Korean pattern names from the list above. "
+            "\n"
+            "Important: When pattern definitions mention 'RF' as dpics_code, it should be treated as 'RD' (Reflective Statement).\n"
+            "\n"
+            "Instructions:\n"
+            "1. Analyze the labeled utterances carefully and match them to the patterns defined above.\n"
+            "2. Use the pattern definitions, examples, and DPICS codes to identify patterns accurately.\n"
+            "3. Consider the context and sequence of utterances when detecting patterns.\n"
+            "4. For each detected pattern, provide: pattern_name (must match Korean name from definitions), description, utterance_indices, severity (low/medium/high), and pattern_type (positive/negative).\n"
+            "5. pattern_name must exactly match one of the Korean pattern names from the definitions above.\n"
+            "\n"
+            "Return ONLY a JSON array of objects with: {{pattern_name, description, utterance_indices, severity, pattern_type}}. "
             "No extra text."
         ),
     ),
@@ -81,7 +144,7 @@ _PATTERN_PROMPT = ChatPromptTemplate.from_messages([
         "human",
         (
             "Labeled utterances:\n{utterances_labeled}\n\n"
-            "Detect interaction patterns and return JSON array only."
+            "Detect interaction patterns based on the pattern definitions provided and return JSON array only."
         ),
     ),
 ])
@@ -118,306 +181,8 @@ _PATTERN_VALIDATION_PROMPT = ChatPromptTemplate.from_messages([
 ])
 
 
-def _detect_positive_patterns(utterances_labeled: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """긍정적 패턴 탐지"""
-    patterns = []
-    positive_patterns = _PATTERN_DEFINITIONS.get("positive_patterns", [])
-    
-    for i, utt in enumerate(utterances_labeled):
-        speaker = utt.get("speaker", "").lower()
-        label = utt.get("label", "")
-        text = utt.get("text", "").lower()
-        
-        if speaker not in ["parent", "mom", "mother", "dad", "father", "부모", "엄마", "아빠"]:
-            continue
-        
-        # 패턴 1: 구체적 칭찬 (PR 라벨) - 비꼬는 말이나 부정적 내용 제외
-        if label == "PR":
-            # 비꼬는 말이나 부정적 키워드 체크
-            sarcasm_keywords = [
-                "fool", "stupid", "idiot", "really?", "great job (sarcastic)",
-                "바보", "멍청", "정말 잘했네", "참 좋네", "훌륭하네 (비꼬는)"
-            ]
-            text_lower = text.lower()
-            
-            # 비꼬는 말이 아닐 때만 긍정적 패턴으로 인식
-            if not any(kw in text_lower for kw in sarcasm_keywords):
-                for pattern_def in positive_patterns:
-                    if pattern_def.get("dpics_code") == "PR":
-                        patterns.append({
-                            "pattern_name": pattern_def.get("name", "구체적 칭찬"),
-                            "description": f"구체적 칭찬을 사용했습니다: {utt.get('text', '')[:50]}",
-                            "utterance_indices": [i],
-                            "severity": "low",  # 긍정적 패턴은 낮은 severity
-                            "pattern_type": "positive"
-                        })
-                        break
-        
-        # 패턴 2: 반영적 경청 (RD 라벨, dpics_electra.py 기준)
-        if label == "RD":
-            for pattern_def in positive_patterns:
-                if pattern_def.get("dpics_code") == "RD" or pattern_def.get("name") == "반영적 경청":
-                    patterns.append({
-                        "pattern_name": pattern_def.get("name", "반영적 경청"),
-                        "description": f"반영적 경청을 사용했습니다: {utt.get('text', '')[:50]}",
-                        "utterance_indices": [i],
-                        "severity": "low",
-                        "pattern_type": "positive"
-                    })
-                    break
-        
-        # 패턴 3: 행동 묘사 (BD 라벨) - 부정적 내용 제외
-        if label == "BD" and speaker in ["parent", "mom", "mother", "dad", "father", "부모", "엄마", "아빠"]:
-            # 부정적 키워드 체크 (행동 묘사는 중립적이거나 긍정적이어야 함)
-            negative_keywords = [
-                "fool", "stupid", "bad", "wrong", "idiot", "dumb", "loser",
-                "바보", "멍청", "나쁜", "잘못", "못된", "싫어", "미워", "혼내"
-            ]
-            text_lower = text.lower()
-            
-            # 부정적 키워드가 없을 때만 긍정적 패턴으로 인식
-            if not any(kw in text_lower for kw in negative_keywords):
-                for pattern_def in positive_patterns:
-                    if pattern_def.get("dpics_code") == "BD":
-                        patterns.append({
-                            "pattern_name": pattern_def.get("name", "행동 묘사"),
-                            "description": f"행동을 묘사했습니다: {utt.get('text', '')[:50]}",
-                            "utterance_indices": [i],
-                            "severity": "low",
-                            "pattern_type": "positive"
-                        })
-                        break
-        
-        # 패턴 4: 즉각적 긍정 강화 - 아이의 긍정적 행동 직후 칭찬
-        if i > 0:
-            prev_utt = utterances_labeled[i - 1]
-            prev_speaker = prev_utt.get("speaker", "").lower()
-            prev_label = prev_utt.get("label", "")
-            
-            # 이전 발화가 아이의 긍정적 행동이고, 현재가 부모의 칭찬인 경우
-            if (prev_speaker in ["child", "chi", "kid", "아이"] and 
-                prev_label in ["BD"] and 
-                label == "PR"):
-                for pattern_def in positive_patterns:
-                    if pattern_def.get("name") == "즉각적 긍정 강화":
-                        patterns.append({
-                            "pattern_name": pattern_def.get("name", "즉각적 긍정 강화"),
-                            "description": "아이의 긍정적 행동 직후 칭찬을 제공했습니다",
-                            "utterance_indices": [i - 1, i],
-                            "severity": "low",
-                            "pattern_type": "positive"
-                        })
-                        break
-        
-        # 패턴 5: 감정 코칭 - 감정 관련 키워드와 함께 반영/공감
-        emotion_keywords = ["화", "슬", "무서", "기쁘", "행복", "속상", "힘들", "짜증"]
-        if label == "RD" and any(kw in text for kw in emotion_keywords):
-            for pattern_def in positive_patterns:
-                if pattern_def.get("name") == "감정 코칭":
-                    patterns.append({
-                        "pattern_name": pattern_def.get("name", "감정 코칭"),
-                        "description": f"아이의 감정을 인정하고 코칭했습니다: {utt.get('text', '')[:50]}",
-                        "utterance_indices": [i],
-                        "severity": "low",
-                        "pattern_type": "positive"
-                    })
-                    break
-        
-        # 패턴 6: 개방형 질문 (Q 라벨 + 개방형 질문 키워드)
-        open_question_keywords = ["어떻게", "왜", "무엇", "어떤", "어디서", "언제", "어떠한"]
-        if label == "Q" and any(kw in text for kw in open_question_keywords):
-            for pattern_def in positive_patterns:
-                if pattern_def.get("name") == "개방형 질문":
-                    patterns.append({
-                        "pattern_name": pattern_def.get("name", "개방형 질문"),
-                        "description": f"개방형 질문을 사용했습니다: {utt.get('text', '')[:50]}",
-                        "utterance_indices": [i],
-                        "severity": "low",
-                        "pattern_type": "positive"
-                    })
-                    break
-    
-    return patterns
-
-
-def _detect_negative_patterns(utterances_labeled: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """부정적 패턴 탐지"""
-    patterns = []
-    negative_patterns = _PATTERN_DEFINITIONS.get("negative_patterns", [])
-    
-    # 명령 카운트 (과도한 명령 탐지용)
-    command_count = 0
-    command_indices = []
-    
-    # 질문 카운트 (과도한 질문 탐지용)
-    question_count = 0
-    question_indices = []
-    
-    for i, utt in enumerate(utterances_labeled):
-        speaker = utt.get("speaker", "").lower()
-        label = utt.get("label", "")
-        text = utt.get("text", "").lower()
-        
-        if speaker not in ["parent", "mom", "mother", "dad", "father", "부모", "엄마", "아빠"]:
-            continue
-        
-        # 패턴 1: 비판적 반응 (NEG 라벨)
-        if label == "NEG":
-            for pattern_def in negative_patterns:
-                if pattern_def.get("dpics_code") == "NEG" or pattern_def.get("name") == "비판적 반응":
-                    patterns.append({
-                        "pattern_name": pattern_def.get("name", "비판적 반응"),
-                        "description": f"비판적 반응: {utt.get('text', '')[:50]}",
-                        "utterance_indices": [i],
-                        "severity": "high",
-                        "pattern_type": "negative"
-                    })
-                    break
-        
-        # 패턴 2: 과도한 명령/지시 (CMD 라벨, dpics_electra.py 기준)
-        if label == "CMD":
-            command_count += 1
-            command_indices.append(i)
-            
-            # 연속된 명령 탐지
-            if i > 0:
-                prev_label = utterances_labeled[i - 1].get("label", "")
-                if prev_label == "CMD":
-                    for pattern_def in negative_patterns:
-                        if pattern_def.get("name") == "과도한 명령/지시":
-                            patterns.append({
-                                "pattern_name": pattern_def.get("name", "과도한 명령/지시"),
-                                "description": "연속된 명령을 사용했습니다",
-                                "utterance_indices": [i - 1, i],
-                                "severity": "medium",
-                                "pattern_type": "negative"
-                            })
-                            break
-        
-        # 패턴 3: 반영/공감 부족 - 아이의 감정 표현 후 반영 없음
-        if i > 0:
-            prev_utt = utterances_labeled[i - 1]
-            prev_speaker = prev_utt.get("speaker", "").lower()
-            prev_text = prev_utt.get("text", "").lower()
-            
-            # 이전 발화가 아이의 감정 표현이고, 현재가 반영/공감이 아닌 경우
-            emotion_keywords = ["화", "슬", "무서", "속상", "힘들", "짜증", "기쁘", "행복"]
-            if (prev_speaker in ["child", "chi", "kid", "아이"] and 
-                any(kw in prev_text for kw in emotion_keywords) and
-                label not in ["RD", "PR"]):
-                for pattern_def in negative_patterns:
-                    if pattern_def.get("name") == "반영/공감 부족":
-                        patterns.append({
-                            "pattern_name": pattern_def.get("name", "반영/공감 부족"),
-                            "description": "아이의 감정 표현에 반영/공감하지 않았습니다",
-                            "utterance_indices": [i - 1, i],
-                            "severity": "medium",
-                            "pattern_type": "negative"
-                        })
-                        break
-        
-        # 패턴 4: 감정 무시/감정 기각
-        dismiss_keywords = ["울지 마", "별거 아니", "남자가 왜", "왜 그런", "그만해"]
-        if any(kw in text for kw in dismiss_keywords):
-            for pattern_def in negative_patterns:
-                if pattern_def.get("name") == "감정 무시/감정 기각":
-                    patterns.append({
-                        "pattern_name": pattern_def.get("name", "감정 무시/감정 기각"),
-                        "description": f"아이의 감정을 무시하거나 기각했습니다: {utt.get('text', '')[:50]}",
-                        "utterance_indices": [i],
-                        "severity": "high",
-                        "pattern_type": "negative"
-                    })
-                    break
-        
-        # 패턴 5: 심리적 통제
-        control_keywords = ["안 좋아해", "아프잖아", "너 때문에", "네가 그러니까"]
-        if any(kw in text for kw in control_keywords):
-            for pattern_def in negative_patterns:
-                if pattern_def.get("name") == "심리적 통제":
-                    patterns.append({
-                        "pattern_name": pattern_def.get("name", "심리적 통제"),
-                        "description": f"심리적 통제를 사용했습니다: {utt.get('text', '')[:50]}",
-                        "utterance_indices": [i],
-                        "severity": "high",
-                        "pattern_type": "negative"
-                    })
-                    break
-        
-        # 패턴 6: 과도한 질문 (Q 라벨 카운트)
-        if label == "Q":
-            question_count += 1
-            question_indices.append(i)
-            
-            # 연속된 질문 탐지
-            if i > 0:
-                prev_label = utterances_labeled[i - 1].get("label", "")
-                if prev_label == "Q":
-                    for pattern_def in negative_patterns:
-                        if pattern_def.get("name") == "과도한 질문":
-                            patterns.append({
-                                "pattern_name": pattern_def.get("name", "과도한 질문"),
-                                "description": "연속된 질문을 사용했습니다",
-                                "utterance_indices": [i - 1, i],
-                                "severity": "medium",
-                                "pattern_type": "negative"
-                            })
-                            break
-        
-        # 패턴 7: 긍정기회놓치기 - 아이의 긍정적 행동에 칭찬 없음
-        if i > 0:
-            prev_utt = utterances_labeled[i - 1]
-            prev_speaker = prev_utt.get("speaker", "").lower()
-            prev_label = prev_utt.get("label", "")
-            
-            if (prev_speaker in ["child", "chi", "kid", "아이"] and 
-                prev_label in ["BD"] and 
-                label != "PR"):
-                # 패턴 정의에서 "긍정" 또는 "기회"가 포함된 부정적 패턴 찾기
-                negative_pattern_names = get_negative_pattern_names()
-                missed_opportunity_pattern = None
-                for pattern_name in negative_pattern_names:
-                    if "긍정" in pattern_name or "기회" in pattern_name:
-                        missed_opportunity_pattern = pattern_name
-                        break
-                
-                # 패턴 정의에 없으면 기본 이름 사용
-                pattern_name = missed_opportunity_pattern or "긍정기회놓치기"
-                patterns.append({
-                    "pattern_name": pattern_name,
-                    "description": "아이의 긍정적 행동에 칭찬하지 않았습니다",
-                    "utterance_indices": [i - 1, i],
-                    "severity": "medium",
-                    "pattern_type": "negative"
-                })
-    
-    # 패턴 8: 과도한 명령/지시 (전체 카운트 기반)
-    if command_count >= 5:  # 5개 이상이면 과도함
-        for pattern_def in negative_patterns:
-            if pattern_def.get("name") == "과도한 명령/지시":
-                patterns.append({
-                    "pattern_name": pattern_def.get("name", "과도한 명령/지시"),
-                    "description": f"과도한 명령을 사용했습니다 (총 {command_count}개)",
-                    "utterance_indices": command_indices[:10],  # 최대 10개
-                    "severity": "high" if command_count >= 10 else "medium",
-                    "pattern_type": "negative"
-                })
-                break
-    
-    # 패턴 9: 과도한 질문 (전체 카운트 기반)
-    if question_count >= 5:  # 5개 이상이면 과도함
-        for pattern_def in negative_patterns:
-            if pattern_def.get("name") == "과도한 질문":
-                patterns.append({
-                    "pattern_name": pattern_def.get("name", "과도한 질문"),
-                    "description": f"과도한 질문을 사용했습니다 (총 {question_count}개)",
-                    "utterance_indices": question_indices[:10],  # 최대 10개
-                    "severity": "high" if question_count >= 10 else "medium",
-                    "pattern_type": "negative"
-                })
-                break
-    
-    return patterns
+# 규칙 기반 패턴 탐지 함수들은 제거됨
+# 이제 LLM이 중앙화된 패턴 정의를 사용하여 패턴을 탐지함
 
 
 def _validate_patterns_with_llm(
@@ -520,7 +285,7 @@ def _validate_patterns_with_llm(
 
 def detect_patterns_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    ④ detect_patterns: 규칙/LLM로 패턴 찾기
+    ④ detect_patterns: LLM 기반 패턴 탐지 (중앙화된 패턴 정의 사용)
     utterances_labeled를 받아서 탐지된 패턴들 반환
     """
     utterances_labeled = state.get("utterances_labeled") or []
@@ -528,24 +293,15 @@ def detect_patterns_node(state: Dict[str, Any]) -> Dict[str, Any]:
     if not utterances_labeled:
         return {"patterns": []}
     
-    # 규칙 기반 패턴 탐지
+    # LLM 기반 패턴 탐지 (중앙화된 패턴 정의 사용)
     patterns: List[Dict[str, Any]] = []
     
-    # 긍정적 패턴 탐지
-    positive_patterns = _detect_positive_patterns(utterances_labeled)
-    patterns.extend(positive_patterns)
-    
-    # 부정적 패턴 탐지
-    negative_patterns = _detect_negative_patterns(utterances_labeled)
-    patterns.extend(negative_patterns)
-    
-    # LLM 기반 추가 패턴 탐지 (규칙 기반으로 탐지되지 않은 패턴 찾기)
     try:
-        llm = get_llm(mini=True)
+        llm = get_llm(mini=False)  # 패턴 탐지는 더 정확한 모델 사용
         
-        # 발화를 포맷팅 (라벨 정보 명시)
+        # 발화를 포맷팅 (라벨 정보 명시, 한국어 원문 포함)
         utterances_str = "\n".join([
-            f"{i}. [{utt.get('speaker')}] [Label: {utt.get('label')}] {utt.get('text')}"
+            f"{i}. [{utt.get('speaker', 'Unknown')}] [Label: {utt.get('label', 'N/A')}] {utt.get('original_ko', utt.get('text', ''))}"
             for i, utt in enumerate(utterances_labeled)
         ])
         
@@ -557,66 +313,47 @@ def detect_patterns_node(state: Dict[str, Any]) -> Dict[str, Any]:
         if json_match:
             llm_patterns = json.loads(json_match.group(0))
             if isinstance(llm_patterns, list):
-                # LLM이 탐지한 패턴 중 규칙 기반으로 탐지되지 않은 것만 추가
-                existing_pattern_names = {p.get("pattern_name") for p in patterns}
+                # 패턴 타입이 없으면 패턴 정의에서 확인하여 추가
                 for llm_p in llm_patterns:
                     pattern_name = llm_p.get("pattern_name", "")
-                    if pattern_name and pattern_name not in existing_pattern_names:
-                        # pattern_type 설정
-                        pattern_type = "negative"
+                    
+                    # pattern_type이 없으면 패턴 정의에서 확인
+                    if "pattern_type" not in llm_p:
+                        pattern_type = "negative"  # 기본값
+                        # 긍정적 패턴 확인
                         for pos_p in _PATTERN_DEFINITIONS.get("positive_patterns", []):
                             if pos_p.get("name") == pattern_name:
                                 pattern_type = "positive"
                                 break
+                        # 부정적 패턴 확인
+                        if pattern_type == "negative":
+                            for neg_p in _PATTERN_DEFINITIONS.get("negative_patterns", []):
+                                if neg_p.get("name") == pattern_name:
+                                    pattern_type = "negative"
+                                    break
                         llm_p["pattern_type"] = pattern_type
-                        patterns.append(llm_p)
+                    
+                    patterns.append(llm_p)
+        else:
+            print(f"LLM pattern detection: No JSON array found in response")
     except Exception as e:
         print(f"LLM pattern detection error: {e}")
-    
-    # 규칙 기반으로 탐지된 긍정 패턴 분리 (검증에서 보호)
-    rule_based_positive = []
-    rule_based_positive_indices = set()
-    other_patterns = []
-    
-    for p in patterns:
-        # 규칙 기반 긍정 패턴인지 확인
-        is_rule_based_positive = (
-            p.get("pattern_type") == "positive" and
-            any(
-                p.get("pattern_name") == pos_p.get("name")
-                for pos_p in _PATTERN_DEFINITIONS.get("positive_patterns", [])
-            )
-        )
-        
-        if is_rule_based_positive:
-            rule_based_positive.append(p)
-            rule_based_positive_indices.update(p.get("utterance_indices", []))
-        else:
-            other_patterns.append(p)
+        import traceback
+        traceback.print_exc()
     
     # 중복 제거 (패턴명과 발화 인덱스 기반)
-    # 규칙 기반 긍정 패턴과 겹치는 LLM 패턴 제거
     seen = set()
-    unique_other_patterns = []
-    for p in other_patterns:
-        # 패턴명과 관련 발화 인덱스로 중복 판단
+    unique_patterns = []
+    for p in patterns:
         indices = tuple(sorted(p.get("utterance_indices", [])))
         key = (p.get("pattern_name"), indices)
         
-        # 규칙 기반 긍정 패턴과 발화 인덱스가 겹치면 제외 (규칙 기반 우선)
-        p_indices = set(p.get("utterance_indices", []))
-        if p_indices.intersection(rule_based_positive_indices):
-            continue
-        
         if key not in seen:
             seen.add(key)
-            unique_other_patterns.append(p)
+            unique_patterns.append(p)
     
-    # LLM 기반 패턴 검증 (규칙 기반 긍정 패턴 제외하고 검증)
-    validated_other_patterns = _validate_patterns_with_llm(unique_other_patterns, utterances_labeled)
+    # LLM 기반 패턴 검증
+    validated_patterns = _validate_patterns_with_llm(unique_patterns, utterances_labeled)
     
-    # 규칙 기반 긍정 패턴 + 검증된 다른 패턴 합치기
-    final_patterns = rule_based_positive + validated_other_patterns
-    
-    return {"patterns": final_patterns}
+    return {"patterns": validated_patterns}
 
