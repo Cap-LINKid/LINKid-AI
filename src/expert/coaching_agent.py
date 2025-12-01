@@ -408,6 +408,29 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         advice_section = f"- [{advice['advice_type']}] {advice['title']}\n  {advice['content'][:400]}..."
                         expert_advice_sections.append(advice_section)
                     
+                    # needs_improvement의 expert_references에서 excerpt 추가 (중복 제거)
+                    seen_ref_titles = set([advice.get("title", "") for advice in selected_advice])
+                    if isinstance(key_moments, dict):
+                        needs_improvement = key_moments.get("needs_improvement", [])
+                        for moment in needs_improvement:
+                            expert_references = moment.get("expert_references", [])
+                            for ref in expert_references:
+                                title = ref.get("title", "")
+                                excerpt = ref.get("excerpt", "")
+                                source = ref.get("source", "")
+                                
+                                # 중복 제거: 이미 VectorDB 검색 결과에 포함된 경우 제외
+                                if title and title not in seen_ref_titles and excerpt:
+                                    seen_ref_titles.add(title)
+                                    # excerpt를 더 길게 포함 (최대 600자)
+                                    excerpt_text = excerpt[:600] if len(excerpt) > 600 else excerpt
+                                    if source:
+                                        ref_section = f"- [needs_improvement 참고] {title} ({source})\n  {excerpt_text}"
+                                    else:
+                                        ref_section = f"- [needs_improvement 참고] {title}\n  {excerpt_text}"
+                                    expert_advice_sections.append(ref_section)
+                                    print(f"[Coaching] needs_improvement expert_reference 추가: {title}")
+                    
                     expert_advice_section = "전문가 조언 및 챌린지 가이드:\n" + "\n".join(expert_advice_sections)
                     
                     # 레퍼런스 리스트 구성 (중복 제거)
@@ -431,6 +454,26 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                             expert_references_list.append(ref_data)
                             print(f"[VectorDB] 레퍼런스 추가: title='{ref_data['title']}', reference='{ref_data['reference']}'")
                     
+                    # needs_improvement의 expert_references도 레퍼런스 리스트에 추가
+                    if isinstance(key_moments, dict):
+                        needs_improvement = key_moments.get("needs_improvement", [])
+                        for moment in needs_improvement:
+                            expert_references = moment.get("expert_references", [])
+                            for ref in expert_references:
+                                title = ref.get("title", "")
+                                source = ref.get("source", "")
+                                
+                                # 중복 제거: 이미 레퍼런스 리스트에 포함된 경우 제외
+                                if title and title.strip() and title not in seen_titles:
+                                    seen_titles.add(title)
+                                    ref_data = {
+                                        "title": title.strip(),
+                                        "reference": source.strip() if source else "",
+                                        "type": "needs_improvement"
+                                    }
+                                    expert_references_list.append(ref_data)
+                                    print(f"[Coaching] needs_improvement 레퍼런스 추가: title='{ref_data['title']}', reference='{ref_data['reference']}'")
+                    
                     print(f"[VectorDB] 전문가 조언 섹션 생성 완료 - {len(expert_references_list)}개 레퍼런스 (중복 제거 후)")
                 else:
                     print(f"[VectorDB] 모든 키워드 검색 결과 없음")
@@ -443,8 +486,52 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
             expert_advice_section = ""
             expert_references_list = []
     
+    # expert_references_list가 비어있어도 needs_improvement의 expert_references가 있으면 추가
+    if not expert_references_list and isinstance(key_moments, dict):
+        needs_improvement = key_moments.get("needs_improvement", [])
+        seen_titles = set()
+        for moment in needs_improvement:
+            expert_references = moment.get("expert_references", [])
+            for ref in expert_references:
+                title = ref.get("title", "")
+                source = ref.get("source", "")
+                
+                if title and title.strip() and title not in seen_titles:
+                    seen_titles.add(title)
+                    ref_data = {
+                        "title": title.strip(),
+                        "reference": source.strip() if source else "",
+                        "type": "needs_improvement"
+                    }
+                    expert_references_list.append(ref_data)
+                    print(f"[Coaching] needs_improvement 레퍼런스 추가 (빈 리스트): title='{ref_data['title']}', reference='{ref_data['reference']}'")
+    
+    # expert_advice_section이 비어있어도 needs_improvement의 expert_references가 있으면 추가
     if not expert_advice_section:
-        expert_advice_section = ""
+        expert_advice_sections = []
+        if isinstance(key_moments, dict):
+            needs_improvement = key_moments.get("needs_improvement", [])
+            for moment in needs_improvement:
+                expert_references = moment.get("expert_references", [])
+                for ref in expert_references:
+                    title = ref.get("title", "")
+                    excerpt = ref.get("excerpt", "")
+                    source = ref.get("source", "")
+                    
+                    if title and excerpt:
+                        # excerpt를 더 길게 포함 (최대 600자)
+                        excerpt_text = excerpt[:600] if len(excerpt) > 600 else excerpt
+                        if source:
+                            ref_section = f"- [needs_improvement 참고] {title} ({source})\n  {excerpt_text}"
+                        else:
+                            ref_section = f"- [needs_improvement 참고] {title}\n  {excerpt_text}"
+                        expert_advice_sections.append(ref_section)
+                        print(f"[Coaching] needs_improvement expert_reference 추가 (빈 섹션): {title}")
+        
+        if expert_advice_sections:
+            expert_advice_section = "전문가 조언 및 챌린지 가이드:\n" + "\n".join(expert_advice_sections)
+        else:
+            expert_advice_section = ""
     
     try:
         res = (_COACHING_PROMPT | llm).invoke({

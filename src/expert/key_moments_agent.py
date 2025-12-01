@@ -150,7 +150,7 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
     
     # VectorDB에서 전문가 조언 검색 (프롬프트에 포함)
     expert_advice_section = ""
-    prompt_reference_description = ""
+    prompt_reference_descriptions = []  # 배열로 초기화
     # USE_VECTOR_DB가 명시적으로 false가 아니면 검색 시도 (기본값: true)
     use_vector_db_env = os.getenv("USE_VECTOR_DB", "true").lower()
     use_vector_db = use_vector_db_env != "false"
@@ -198,8 +198,7 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         if len(prompt_refs) >= 2:
                             break
 
-                    if prompt_refs:
-                        prompt_reference_description = "; ".join(prompt_refs)
+                    prompt_reference_descriptions = prompt_refs if prompt_refs else []
         except Exception as e:
             print(f"VectorDB 검색 오류 (프롬프트): {e}")
             expert_advice_section = ""
@@ -254,7 +253,7 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                     "reason": moment.reason,
                     "pattern_hint": moment.pattern_hint + " 패턴 발견",
                     # VectorDB에서 찾은 레퍼런스 요약 (expert_advice_section 기반, 최대 2개)
-                    "reference_description": prompt_reference_description
+                    "reference_descriptions": prompt_reference_descriptions
                 })
             
             # needs_improvement 변환 (한국어 원문 사용) + VectorDB 검색
@@ -384,21 +383,18 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 else:
                     print(f"[VectorDB] 검색 비활성화됨 (USE_VECTOR_DB={use_vector_db_env})")
                 
-                # 레퍼런스 설명 생성 (출처와 작성자 나열)
-                reference_description = ""
+                # 레퍼런스 설명 생성 (출처와 작성자 나열) - 배열로 변경
+                reference_descriptions = []
                 if expert_references:
                     # source와 author 필드에서 출처와 작성자 추출 (중복 제거)
                     sources = list(set([ref.get("source", "") for ref in expert_references if ref.get("source")]))
                     authors = list(set([ref.get("author", "") for ref in expert_references if ref.get("author")]))
                     
-                    ref_parts = []
+                    # sources와 authors를 각각 배열에 추가
                     if sources:
-                        ref_parts.extend(sources)
+                        reference_descriptions.extend(sources)
                     if authors:
-                        ref_parts.extend(authors)
-                    
-                    if ref_parts:
-                        reference_description = ", ".join(ref_parts)
+                        reference_descriptions.extend(authors)
                 
                 # 첫 번째 것만 needs_improvement_list에 추가
                 if idx == 0:
@@ -408,7 +404,7 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         "better_response": moment.better_response,
                         "pattern_hint": moment.pattern_hint,
                         "expert_references": expert_references if expert_references else [],  # None 대신 빈 배열
-                        "reference_description": reference_description
+                        "reference_descriptions": reference_descriptions
                     })
                 else:
                     # 나머지는 pattern_examples에 추가하기 위해 저장
@@ -418,7 +414,7 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         "better_response": moment.better_response,
                         "pattern_hint": moment.pattern_hint,
                         "expert_references": expert_references if expert_references else [],
-                        "reference_description": reference_description
+                        "reference_descriptions": reference_descriptions
                     })
             
             # pattern_examples 변환 (한국어 원문 사용)
