@@ -206,15 +206,19 @@ def check_database_status():
         for row in cursor.fetchall():
             print(f"  - {row[0]}: {row[1]}개")
         
-        # 벡터 차원 확인
-        cursor.execute("""
-            SELECT array_length(embedding::float[], 1) as dim
-            FROM expert_advice 
-            LIMIT 1
-        """)
-        dim = cursor.fetchone()
-        if dim and dim[0]:
-            print(f"\n임베딩 차원: {dim[0]}")
+        # 벡터 차원 확인 (pgvector의 vector_dims 함수 사용)
+        try:
+            cursor.execute("""
+                SELECT vector_dims(embedding) as dim
+                FROM expert_advice 
+                LIMIT 1
+            """)
+            dim = cursor.fetchone()
+            if dim and dim[0]:
+                print(f"\n임베딩 차원: {dim[0]}")
+        except Exception as e:
+            # 차원 조회 실패는 치명적이지 않으므로 경고만 출력
+            print("\n임베딩 차원 정보를 가져오는 데 실패했습니다:", e)
         
         cursor.close()
         conn.close()
@@ -230,14 +234,19 @@ def main():
     parser.add_argument(
         "--query",
         type=str,
-        default="긍정기회놓치기 패턴 개선 방법",
-        help="검색 쿼리 텍스트"
+        default=None,
+        help="검색 쿼리 텍스트 (미입력 시 인터랙티브 모드)"
     )
     parser.add_argument(
         "--top-k",
         type=int,
         default=5,
         help="반환할 결과 수"
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="인터랙티브 모드로 여러 쿼리를 연속 검색"
     )
     parser.add_argument(
         "--check-only",
@@ -252,15 +261,38 @@ def main():
     
     if args.check_only:
         return
-    
-    # 직접 SQL 검색 테스트
-    test_direct_sql_search(args.query, args.top_k)
-    
-    # LangChain 유틸리티 검색 테스트
-    test_langchain_search(args.query, args.top_k)
-    
-    # 필터링 검색 테스트
-    test_filtered_search(args.query)
+
+    # 쿼리 입력 방식 결정
+    if args.interactive or not args.query:
+        # 인터랙티브 모드
+        print("\n인터랙티브 모드로 진입합니다.")
+        print("검색 쿼리를 입력하면 직접 SQL / LangChain / 필터 검색을 순서대로 실행합니다.")
+        print("종료하려면 빈 줄을 입력하거나 'q', 'quit', 'exit' 를 입력하세요.")
+
+        while True:
+            query = input("\n검색 쿼리를 입력하세요: ").strip()
+            if not query or query.lower() in {"q", "quit", "exit"}:
+                print("\n인터랙티브 모드를 종료합니다.")
+                break
+
+            # 직접 SQL 검색 테스트
+            test_direct_sql_search(query, args.top_k)
+
+            # LangChain 유틸리티 검색 테스트
+            test_langchain_search(query, args.top_k)
+
+            # 필터링 검색 테스트
+            test_filtered_search(query)
+    else:
+        # 단일 쿼리 모드 (기존 동작)
+        # 직접 SQL 검색 테스트
+        test_direct_sql_search(args.query, args.top_k)
+
+        # LangChain 유틸리티 검색 테스트
+        test_langchain_search(args.query, args.top_k)
+
+        # 필터링 검색 테스트
+        test_filtered_search(args.query)
     
     print("\n" + "=" * 60)
     print("테스트 완료!")
