@@ -333,7 +333,10 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
         
         # 각 action별로 평가
         action_evaluations = []
+        challenge_actions_dict = {}  # action_id를 키로 사용하여 중복 제거
+        
         for action_idx, action in enumerate(actions, start=1):
+            action_idx_real = int(action.get("action_id", 1))
             # action이 문자열인 경우와 딕셔너리인 경우 모두 처리
             if isinstance(action, str):
                 action_content = str(action)
@@ -349,19 +352,19 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
             evaluation = _evaluate_action(
                 {"title": challenge_name},  # challenge_spec 대신 필요한 값만 전달
                 action_content, 
-                action_idx, 
+                action_idx_real,
                 utterances
             )
             
-            # 수행된 action이 있으면 challenge_evaluations에 추가
+            # 수행된 action이 있으면 challenge_actions_dict에 추가 (중복 제거)
             if evaluation:
-                # evaluation은 이미 _evaluate_action에서 기본 타입으로 변환되어 반환됨
-                # 깊은 복사하여 순환 참조 방지
-                evaluation_copy = {
-                    "challenge_name": evaluation.get("challenge_name", ""),
-                    "action_id": evaluation.get("action_id", 0),
-                    "detected_count": evaluation.get("detected_count", 0),
-                    "description": evaluation.get("description", ""),
+                action_id = int(evaluation.get("action_id", 0))
+                
+                # challenge_evaluations용 action 데이터 생성
+                action_data = {
+                    "action_id": action_id,
+                    "detected_count": int(evaluation.get("detected_count", 0)),
+                    "description": str(evaluation.get("description", "") or ""),
                     "instances": [
                         {
                             "timestamp": inst.get("timestamp", "00:00"),
@@ -370,13 +373,34 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         for inst in evaluation.get("instances", [])
                     ]
                 }
-                challenge_evaluations.append(evaluation_copy)
+                
+                # 같은 action_id가 이미 있으면, detected_count가 더 큰 것을 선택
+                if action_id in challenge_actions_dict:
+                    existing_count = challenge_actions_dict[action_id].get("detected_count", 0)
+                    new_count = action_data.get("detected_count", 0)
+                    if new_count > existing_count:
+                        challenge_actions_dict[action_id] = action_data
+                else:
+                    challenge_actions_dict[action_id] = action_data
+                
                 # action_evaluations에는 evaluation 전체가 아닌 필요한 정보만 포함 (순환 참조 방지)
                 action_evaluations.append({
-                    "action_id": action_idx,
+                    "action_id": action_idx_real,
                     "action_content": action_content,
+                    "description": str(evaluation.get("description", "") or ""),
                     "detected_count": evaluation.get("detected_count", 0)
                 })
+        
+        # challenge_actions_dict를 리스트로 변환
+        challenge_actions = list(challenge_actions_dict.values())
+        
+        # challenge_evaluations에 challenge 단위로 추가 (actions가 있는 경우만)
+        if challenge_actions:
+            challenge_evaluation = {
+                "challenge_name": str(challenge_name),
+                "actions": challenge_actions
+            }
+            challenge_evaluations.append(challenge_evaluation)
         
         # challenge_eval 결과 생성 (순환 참조 방지)
         challenge_evals.append({
@@ -391,5 +415,5 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "challenge_eval": first_eval,  # 하위 호환성
         "challenge_evals": challenge_evals,  # 여러 챌린지 결과
-        "challenge_evaluations": challenge_evaluations  # 수행된 action들의 challenge_evaluation 리스트
+        "challenge_evaluations": challenge_evaluations  # challenge 단위로 그룹화된 challenge_evaluation 리스트
     }

@@ -1,0 +1,343 @@
+{
+  "positive_patterns": [
+    {
+      "id": 1,
+      "name": "구체적 칭찬",
+      "english_name": "Labeled Praise",
+      "definition": "아동의 특정 긍정적 행동을 명확하게 지적하며 칭찬하는 것",
+      "dpics_code": "PR",
+      "examples": [
+        "장난감을 깔끔하게 정리했구나! 정말 잘했어!",
+        "친구와 장난감을 나눠 쓴 것 정말 멋지네!",
+        "혼자서 신발을 신다니 대단해!"
+      ],
+      "effects": [
+        "아동의 자존감 향상",
+        "긍정적 행동 증가",
+        "부모-자녀 관계 강화"
+      ],
+      "sources": [
+        "https://pubmed.ncbi.nlm.nih.gov/33879307/",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC10350409/"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "즉각적 긍정 강화",
+      "english_name": "Immediate Positive Reinforcement",
+      "definition": "아동이 긍정적 행동을 보인 직후(3-5초 이내) 칭찬이나 인정을 제공하는 것",
+      "timing": "행동 발생 후 3-5초 이내",
+      "examples": [
+        "와! 바로 정리했네!",
+        "예의 바르게 말해줘서 고마워!"
+      ],
+      "effects": [
+        "행동과 결과의 명확한 연결",
+        "학습 효과 극대화",
+        "행동 반복 가능성 증가"
+      ],
+      "sources": [
+        "https://scholarsarchive.byu.edu/.../",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC7585566/"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "반영적 경청",
+      "english_name": "Reflective Listening",
+      "definition": "아동이 말한 내용을 반영하여 경청과 이해를 표현하는 것",
+      "dpics_code": "RF",
+      "examples": [
+        "장난감이 망가졌구나",
+        "친구가 때렸구나, 속상했겠다",
+        "블록으로 집을 만들고 있구나"
+      ],
+      "effects": [
+        "언어 발달 촉진",
+        "자기표현 능력 향상",
+        "신뢰 관계 강화"
+      ],
+      "sources": [
+        "https://www.kci.go.kr/.../ART001902577",
+        "https://www.psicothema.com/pdf/4680.pdf"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "감정 코칭",
+      "english_name": "Emotion Coaching",
+      "definition": "아동의 감정을 인정하고 명명하며 대처 전략을 가르치는 것",
+      "steps": [
+        "아동의 감정 인식하기",
+        "감정을 교육·친밀감 기회로 보기",
+        "감정 경청 및 공감",
+        "감정 표현 돕기",
+        "문제 해결 제공(진정 후)"
+      ],
+      "examples": [
+        "화가 많이 났구나. 심호흡을 해보자",
+        "슬프구나. 슬플 때는 울어도 괜찮아",
+        "무서웠구나. 어떤 게 무서웠는지 말해줄래?"
+      ],
+      "effects": [
+        "정서 조절 능력 향상",
+        "사회적 능력 증가",
+        "행동 문제 감소"
+      ],
+      "sources": [
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC5355507/"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "행동 묘사",
+      "english_name": "Behavior Description",
+      "definition": "아동이 하고 있는 행동을 판단 없이 설명하는 것",
+      "dpics_code": "BD",
+      "examples": [
+        "빨간 블록을 쌓고 있구나",
+        "동그라미를 그리고 있네",
+        "인형 머리를 빗기고 있구나"
+      ],
+      "effects": [
+        "아동의 주도성 강화",
+        "언어 모델링",
+        "집중력 향상"
+      ],
+      "sources": [
+        "https://pubmed.ncbi.nlm.nih.gov/33879307/",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC11818805/"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "개방형 질문",
+      "english_name": "Open-Ended Questions",
+      "definition": "단답형으로 끝나지 않고, 아동이 생각과 감정을 자유롭게 표현하게 하는 질문",
+      "examples": [
+        "오늘 유치원에서 뭐가 제일 재미있었어?",
+        "어떻게 이 그림을 그리게 되었어?",
+        "이 이야기가 끝나면 어떻게 될 것 같아?"
+      ],
+      "effects": [
+        "언어 능력 향상",
+        "어휘력 확대",
+        "비판적 사고 발달"
+      ],
+      "sources": [
+        "https://mybrightwheel.com/...",
+        "https://www.famly.co/blog/open-ended-questions-early-years"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "적절한 대기 시간",
+      "english_name": "Appropriate Wait Time",
+      "definition": "아동이 응답을 준비할 수 있도록 5-10초 이상의 대기 시간을 제공하는 것",
+      "recommended_wait": "5-10초",
+      "examples": [
+        "질문 후 조용히 기다리기",
+        "격려하는 표정으로 멈춰있기"
+      ],
+      "effects": [
+        "응답률 증가",
+        "응답의 질 향상",
+        "비판적 사고 촉진"
+      ],
+      "sources": [
+        "https://www.hanen.org/...",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC11545128/"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "아동 주도 놀이 지원",
+      "english_name": "Child-Led Play Support",
+      "definition": "아동이 선택한 놀이를 따르고 부모가 관찰·지원하며 개입을 최소화하는 것",
+      "examples": [
+        "아동이 블록을 쌓으면 함께 쌓으며 행동 묘사하기",
+        "아동이 그림을 그릴 때 지시 없이 관찰하고 질문하기"
+      ],
+      "effects": [
+        "자율성 발달",
+        "창의성 향상",
+        "애착 강화"
+      ],
+      "sources": [
+        "https://www.gowriensw.com.au/thought-leadership/vygotsky-theory",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC6930973/"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "무조건적 긍정적 존중",
+      "english_name": "Unconditional Positive Regard",
+      "definition": "행동 여부와 상관없이 아동 자체를 가치 있는 존재로 존중하는 태도",
+      "examples": [
+        "동생을 때린 건 안 돼. 하지만 나는 널 사랑해",
+        "실수할 수 있어. 그건 배우는 과정이야"
+      ],
+      "effects": [
+        "자존감 향상",
+        "심리적 건강",
+        "안정적 애착"
+      ],
+      "sources": [
+        "https://www.simplypsychology.org/unconditional-positive-regard.html"
+      ]
+    }
+  ],
+  "negative_patterns": [
+    {
+      "id": 10,
+      "name": "과도한 명령/지시",
+      "english_name": "Excessive Commands",
+      "definition": "아동에게 무엇을 하라고 지시를 과도하게 사용하는 것",
+      "dpics_code": ["CMD", "IND"],
+      "problems": [
+        "자율성 저해",
+        "반항적 행동 유발",
+        "관계 경직"
+      ],
+      "improvement_strategies": [
+        "선택권 제공",
+        "질문보다 진술 사용",
+        "명령 수 줄이기"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "비판적 반응",
+      "english_name": "Critical/Negative Talk",
+      "dpics_code": "NEG",
+      "definition": "아동의 행동이나 특성을 비난하거나 부정적으로 평가하는 말",
+      "examples": [
+        "왜 이렇게 못하니?",
+        "넌 항상 그렇다니까"
+      ],
+      "effects": [
+        "자존감 저하",
+        "불안 및 우울 증가",
+        "관계 악화"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "감정 무시/감정 기각",
+      "english_name": "Emotion Dismissing",
+      "definition": "아동의 감정을 무시하거나 축소하는 것",
+      "examples": [
+        "울지 마, 별거 아니야",
+        "남자가 왜 울어"
+      ],
+      "effects": [
+        "정서 조절 능력 저해",
+        "감정 표현 억제",
+        "안전감 감소"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "과잉보호",
+      "english_name": "Overprotective / Helicopter Parenting",
+      "definition": "아동의 자율성을 침해할 정도로 과도하게 개입하는 것",
+      "effects": [
+        "자율성 발달 저해",
+        "불안 증가",
+        "문제 해결 능력 저하"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "심리적 통제",
+      "english_name": "Psychological Control",
+      "definition": "아동의 감정, 생각을 조작하거나 죄책감을 유발하여 통제하는 것",
+      "examples": [
+        "네가 그러면 엄마는 너 안 좋아해",
+        "네가 그러니까 엄마가 아프잖아"
+      ],
+      "effects": [
+        "불안·죄책감 증가",
+        "자율성 저해",
+        "정서적 의존성 증가"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "부적절한 경계 설정",
+      "english_name": "Inappropriate Boundary Setting",
+      "definition": "너무 엄격하거나 느슨하거나 일관성 없는 규칙 설정",
+      "effects": [
+        "정서 조절 저해",
+        "혼란 증가",
+        "심리적 불안정"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "반영/공감 부족",
+      "english_name": "Lack of Reflection/Empathy",
+      "definition": "아동의 말이나 감정을 반영/공감하지 않는 것",
+      "effects": [
+        "자기표현 저해",
+        "언어 발달 감소",
+        "관계 약화"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "과도한 질문",
+      "english_name": "Excessive Questioning",
+      "definition": "연속적 질문 또는 폐쇄형 질문의 과도한 사용",
+      "effects": [
+        "심문받는 느낌",
+        "자발적 대화 감소"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "대기 시간 부족",
+      "english_name": "Insufficient Wait Time",
+      "definition": "아동에게 충분한 응답 시간을 주지 않는 것",
+      "effects": [
+        "응답 기회 박탈",
+        "자신감 감소",
+        "언어 발달 방해"
+      ]
+    }
+  ],
+  "additional_patterns": [
+    {
+      "id": 19,
+      "name": "타임인",
+      "english_name": "Time-In",
+      "definition": "아동이 감정적으로 힘들 때 연결을 유지하며 진정하도록 돕는 방식",
+      "effects": [
+        "정서 조절 발달",
+        "애착 강화",
+        "반항 감소"
+      ]
+    },
+    {
+      "id": 20,
+      "name": "스캐폴딩",
+      "english_name": "Scaffolding",
+      "definition": "아동이 혼자 하기 어려운 과제를 적절한 도움으로 수행하도록 지원하는 것",
+      "effects": [
+        "자기효능감 증가",
+        "독립성 향상",
+        "학습 최적화"
+      ]
+    }
+  ],
+  "recommended_ratios": {
+    "CDI_target": {
+      "positive_statements_per_min": 10,
+      "commands_per_min": 3,
+      "questions_per_min": 3,
+      "negative_talk_per_min": 0
+    },
+    "positive_to_negative_ratio": "5:1 이상"
+  }
+}
+
