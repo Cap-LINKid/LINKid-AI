@@ -73,12 +73,17 @@ _KEY_MOMENTS_PROMPT = ChatPromptTemplate.from_messages([
             "대화는 핵심 순간을 구성하는 연속된 발화들의 리스트여야 합니다.\n\n"
             "'needs_improvement' 순간의 경우, 반드시 다음을 모두 포함해야 합니다:\n"
             "- 'reason': 왜 이 순간이 문제인지, 어떤 말/행동이 반복되는지, 아이가 어떻게 느꼈을지에 대한 구체적인 설명\n"
+            "  **중요**: 전문가 조언(expert_advice_section)이 제공된 경우, 'reason' 필드에 반드시 전문가 조언의 핵심 내용을 직접 인용하거나 요약하여 포함해야 합니다. "
+            "전문가 조언의 구체적인 문장, 원칙, 설명을 그대로 인용하거나 요약하여 'reason'에 반영하세요. "
+            "예) \"전문가 조언에 따르면, '충격 요법은 부모의 착각입니다. 따끔하게 독한 말을 하면 아이가 정신을 차리고 행동을 바꿀 거라 기대하지만, "
+            "이는 부모만의 착각일 수 있습니다. 자녀에게 그런 말은 동기부여가 아니라 인격적인 공격으로 다가옵니다.' "
+            "따라서 이 발화는 자녀에게 인격적인 공격으로 느껴질 수 있으며, 아이의 감정을 깊이 상처입힐 수 있습니다.\"\n"
             "- 'better_response': 위 대화 내용을 바탕으로, 부모가 실제로 어떤 말과 태도로 바꾸어 말해야 하는지에 대한 구체적인 예시\n"
             "또한, 나중에 요약(summary)과 코칭 챌린지를 만들 때 이 'reason'과 'better_response'가 핵심 근거로 사용되므로, "
             "가능한 한 **구체적인 예시 문장**과 **상황 설명**을 포함하여 작성하세요.\n\n"
             "전문가 조언(expert_advice_section)이 제공된 경우, 반드시 해당 조언을 참고하여 'reason' 설명과 'better_response' 제안을 생성하세요. "
-            "전문가 조언의 핵심 문장(예: \"너 때문에 내가 떠날 거야\"는 유기 불안을 자극한다)을 현재 대화 내용과 연결하여, "
-            "왜 이 발화가 문제가 되는지와 어떻게 바꾸어야 하는지를 분명하게 드러내세요.\n\n"
+            "전문가 조언의 핵심 문장을 현재 대화 내용과 연결하여, 왜 이 발화가 문제가 되는지와 어떻게 바꾸어야 하는지를 분명하게 드러내세요. "
+            "특히 'reason' 필드에는 전문가 조언의 구체적인 내용을 반드시 인용하거나 요약하여 포함해야 합니다.\n\n"
             "모든 서술(설명, reason, better_response, problem_explanation 등)은 "
             "반말이 아닌 **존댓말(예: \"~합니다\", \"~합니다.\")** 체로 공손하게 작성하세요. "
             "'pattern_examples'의 경우, 패턴 이름, 발생 횟수, 문제 설명, 제안된 응답을 포함하세요. "
@@ -169,9 +174,10 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 )
                 
                 if expert_advice:
-                    expert_advice_section = "전문가 조언 참고:\n" + "\n".join(
+                    # 전문가 조언을 더 길게 포함 (최대 800자) - reason 생성 시 반영되도록
+                    expert_advice_section = "전문가 조언 참고 (반드시 reason 필드에 인용 필수):\n" + "\n".join(
                         [
-                            f"- {advice['title']}: {advice['content'][:150]}..."
+                            f"- {advice['title']} ({advice.get('source', '')}):\n  {advice['content'][:800]}{'...' if len(advice['content']) > 800 else ''}"
                             for advice in expert_advice
                         ]
                     )
