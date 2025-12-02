@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from src.utils.common import get_structured_llm
+from src.utils.common import get_structured_llm, get_llm
 from src.utils.vector_store import search_expert_advice
 from src.utils.pattern_manager import extract_pattern_name as extract_pattern_name_from_manager, get_negative_pattern_names_normalized
 
@@ -60,33 +60,38 @@ _KEY_MOMENTS_PROMPT = ChatPromptTemplate.from_messages([
             "당신은 부모-자녀 상호작용에서 핵심 순간을 식별하는 전문가입니다. "
             "핵심 순간을 추출하여 세 가지 카테고리로 분류하세요:\n"
             "1. 'positive': 부모가 잘 대응한 순간들 (감정 코칭, 공감, 인정, 질문형 발화, 선택권 제공 등)\n"
-            "2. 'needs_improvement': 부모의 응답을 명확히 개선할 수 있는 순간들 (명령형, 비판적, 공감 부족 등)\n"
+            "2. 'needs_improvement': 부모의 응답을 명확히 개선할 수 있는 부정적 상호작용 순간들\n"
             "3. 'pattern_examples': 감지된 패턴의 구체적인 대화 발췌 예시들\n\n"
-            "중요한 판단 기준 (반드시 준수):\n"
-            "- 질문형 발화('~할까?', '~어떻게 생각해?', '~하고 싶어?', '~맡아도 될까?')는 절대 'needs_improvement'에 포함하지 마세요. 'positive'로 분류하세요.\n"
-            "- 선택권을 제공하는 발화('~할래?', '~어떤 게 좋을까?')는 절대 'needs_improvement'에 포함하지 마세요. 'positive'로 분류하세요.\n"
-            "- 자녀의 의견을 물어보는 발화는 절대 'needs_improvement'에 포함하지 마세요. 'positive'로 분류하세요.\n"
-            "- '명령과제시' 패턴이 감지되었더라도, 실제 발화가 질문형이면 'needs_improvement'에 포함하지 마세요.\n"
-            "- 'needs_improvement'는 명확히 문제가 있는 경우만 포함하세요 (예: 직접적인 명령형('해라', '해야 해'), 비판적 발화, 공감 부족).\n"
-            "- 애매한 경우는 반드시 'positive'로 분류하거나 제외하세요.\n\n"
+            "분류의 핵심 원칙 (반드시 준수):\n"
+            "- 각 발화/순간에는 사전에 감지된 패턴 정보(예: 긍정적 패턴, 부정적 패턴)가 함께 제공된다고 가정합니다.\n"
+            "- 'positive' 카테고리는 다음 두 조건을 모두 만족하는 순간만 포함합니다:\n"
+            "  (1) 감지된 패턴이 '긍정적인 패턴'으로 라벨링된 발화일 것\n"
+            "  (2) 당신이 의미적으로 판단했을 때도 아이와의 관계에 긍정적인 영향을 주는 발화일 것\n"
+            "- 'needs_improvement' 카테고리는 다음 두 조건을 모두 만족하는 순간만 포함합니다:\n"
+            "  (1) 감지된 패턴이 '부정적인 패턴'으로 라벨링된 발화일 것\n"
+            "  (2) 당신이 의미적으로 판단했을 때도 아이에게 부정적인 영향을 줄 가능성이 높은 발화일 것\n"
+            "- 위 두 조건 중 하나라도 만족하지 않는 순간은 'positive'나 'needs_improvement'에 억지로 넣지 말고 제외합니다.\n\n"
+            "추가적인 의미 판단 기준 (semantic 판단 시 활용):\n"
+            "- 질문형 발화(\"~할까?\", \"~어떻게 생각해?\", \"~하고 싶어?\", \"~맡아도 될까?\")는 일반적으로 아이의 의견을 존중하는 경향이 있으므로, "
+            "패턴이 긍정적일 때 'positive' 후보로 간주합니다.\n"
+            "- 선택권을 제공하는 발화(\"~할래?\", \"어떤 게 좋을까?\")는 아이의 자율성을 존중하는 경향이 있으므로, "
+            "패턴이 긍정적일 때 'positive' 후보로 간주합니다.\n"
+            "- 자녀의 의견을 물어보는 발화(예: \"너는 어떻게 생각해?\", \"어떤 게 좋아?\")는 "
+            "대체로 긍정적 상호작용에 해당하므로, 패턴이 긍정적일 때 'positive' 후보로 간주합니다.\n"
+            "- 반대로, 직접적인 명령형(\"해라\", \"해야 해\"), 비판적 발화, 아이의 감정을 무시하거나 깎아내리는 발화 등은 "
+            "패턴이 부정적일 경우 'needs_improvement' 후보로 간주합니다.\n"
+            "- 'needs_improvement'에는 명확히 문제가 있는 경우만 포함합니다. "
+            "애매하거나 판단이 어려운 경우에는 해당 순간을 제외하거나, 긍정적 부분이 더 크다고 판단되면 'positive'로만 포함합니다.\n\n"
             "각 순간에 대해 발화에서 실제 대화(발화자와 한국어 원문 텍스트)를 포함하세요. "
             "대화는 핵심 순간을 구성하는 연속된 발화들의 리스트여야 합니다.\n\n"
             "'needs_improvement' 순간의 경우, 반드시 다음을 모두 포함해야 합니다:\n"
-            "- 'reason': 왜 이 순간이 문제인지, 어떤 말/행동이 반복되는지, 아이가 어떻게 느꼈을지에 대한 구체적인 설명\n"
-            "  **중요**: 전문가 조언(expert_advice_section)이 제공된 경우, 'reason' 필드에 반드시 전문가 조언의 핵심 내용을 직접 인용하거나 요약하여 포함해야 합니다. "
-            "전문가 조언의 구체적인 문장, 원칙, 설명을 그대로 인용하거나 요약하여 'reason'에 반영하세요. "
-            "예) \"전문가 조언에 따르면, '충격 요법은 부모의 착각입니다. 따끔하게 독한 말을 하면 아이가 정신을 차리고 행동을 바꿀 거라 기대하지만, "
-            "이는 부모만의 착각일 수 있습니다. 자녀에게 그런 말은 동기부여가 아니라 인격적인 공격으로 다가옵니다.' "
-            "따라서 이 발화는 자녀에게 인격적인 공격으로 느껴질 수 있으며, 아이의 감정을 깊이 상처입힐 수 있습니다.\"\n"
-            "- 'better_response': 위 대화 내용을 바탕으로, 부모가 실제로 어떤 말과 태도로 바꾸어 말해야 하는지에 대한 구체적인 예시\n"
-            "또한, 나중에 요약(summary)과 코칭 챌린지를 만들 때 이 'reason'과 'better_response'가 핵심 근거로 사용되므로, "
+            "- 'reason': 왜 이 순간이 문제인지, 어떤 말/행동이 반복되는지, 아이가 어떻게 느꼈을지에 대한 구체적인 설명. "
+            "상황을 명확히 묘사하세요 (예: \"아이가 떼를 부릴 때\", \"부모가 비판적으로 반응할 때\" 등).\n"
+            "- 'better_response': 위 대화 내용을 바탕으로, 부모가 실제로 어떤 말과 태도로 바꾸어 말해야 하는지에 대한 구체적인 예시. "
             "가능한 한 **구체적인 예시 문장**과 **상황 설명**을 포함하여 작성하세요.\n\n"
-            "전문가 조언(expert_advice_section)이 제공된 경우, 반드시 해당 조언을 참고하여 'reason' 설명과 'better_response' 제안을 생성하세요. "
-            "전문가 조언의 핵심 문장을 현재 대화 내용과 연결하여, 왜 이 발화가 문제가 되는지와 어떻게 바꾸어야 하는지를 분명하게 드러내세요. "
-            "특히 'reason' 필드에는 전문가 조언의 구체적인 내용을 반드시 인용하거나 요약하여 포함해야 합니다.\n\n"
             "모든 서술(설명, reason, better_response, problem_explanation 등)은 "
-            "반말이 아닌 **존댓말(예: \"~합니다\", \"~합니다.\")** 체로 공손하게 작성하세요. "
-            "'pattern_examples'의 경우, 패턴 이름, 발생 횟수, 문제 설명, 제안된 응답을 포함하세요. "
+            "반말이 아닌 **존댓말(예: \"~합니다\", \"~합니다.\")** 체로 공손하게 작성하세요.\n\n"
+            "'pattern_examples'의 경우, 감지된 패턴 이름, 발생 횟수, 문제/강점 설명, 제안된 응답 예시(있다면)를 포함하세요. "
             "모든 설명과 응답은 한국어로 작성하세요."
         ),
     ),
@@ -95,9 +100,82 @@ _KEY_MOMENTS_PROMPT = ChatPromptTemplate.from_messages([
         (
             "라벨링된 발화:\n{utterances_labeled}\n\n"
             "감지된 패턴:\n{patterns}\n\n"
-            "{expert_advice_section}\n\n"
             "상호작용에서 핵심 순간을 추출하고 분류하세요. "
             "각 순간에 대해 발화자와 한국어 원문 텍스트가 포함된 실제 대화 발췌를 포함하세요."
+        ),
+    ),
+])
+
+
+class ImprovedNeedsImprovement(BaseModel):
+    """개선된 needs_improvement"""
+    reason: str = Field(description="개선이 필요한 이유 설명 (전문가 조언 반영, 한국어)")
+    better_response: str = Field(description="더 나은 응답 예시 (전문가 조언 반영, 한국어)")
+
+
+class ImprovedPositiveMoment(BaseModel):
+    """개선된 positive moment"""
+    reason: str = Field(description="긍정적인 이유 설명 (전문가 조언 반영, 한국어)")
+
+
+_IMPROVE_NEEDS_IMPROVEMENT_PROMPT = ChatPromptTemplate.from_messages([
+    (
+        "system",
+        (
+            "당신은 부모-자녀 상호작용 전문가입니다. "
+            "주어진 핵심 순간(key_moment)과 전문가 조언(expert_advice)을 바탕으로, "
+            "'reason'과 'better_response'를 개선하여 작성하세요.\n\n"
+            "요구사항:\n"
+            "1. 'reason'에는 반드시 전문가 조언의 핵심 내용을 직접 인용하거나 요약하여 포함해야 합니다.\n"
+            "2. 전문가 조언의 구체적인 문장, 원칙, 설명을 그대로 인용하거나 요약하여 'reason'에 반영하세요.\n"
+            "3. 'better_response'는 전문가 조언에서 제시한 방법을 실제 대화 상황에 적용한 구체적인 예시로 작성하세요.\n"
+            "4. 모든 서술은 반말이 아닌 **존댓말(예: \"~합니다\", \"~합니다.\")** 체로 공손하게 작성하세요.\n"
+            "5. 한국어로 작성하세요."
+        ),
+    ),
+    (
+        "human",
+        (
+            "핵심 순간 (key_moment):\n"
+            "대화:\n{dialogue}\n\n"
+            "패턴 힌트: {pattern_hint}\n\n"
+            "초기 분석:\n"
+            "reason: {initial_reason}\n"
+            "better_response: {initial_better_response}\n\n"
+            "전문가 조언 (expert_advice):\n{expert_advice}\n\n"
+            "위 전문가 조언을 반영하여 'reason'과 'better_response'를 개선하여 작성하세요. "
+            "'reason'에는 반드시 전문가 조언의 핵심 내용을 인용하거나 요약하여 포함하세요."
+        ),
+    ),
+])
+
+
+_IMPROVE_POSITIVE_PROMPT = ChatPromptTemplate.from_messages([
+    (
+        "system",
+        (
+            "당신은 부모-자녀 상호작용에서 긍정적인 순간을 설명하는 전문가입니다. "
+            "주어진 긍정적 핵심 순간(key_moment)과 전문가 조언(expert_advice)을 바탕으로, "
+            "'reason'(왜 이 순간이 좋은지)을 더 풍부하고 구체적으로 개선해서 작성하세요.\n\n"
+            "요구사항:\n"
+            "1. 'reason'에는 반드시 전문가 조언의 핵심 내용을 직접 인용하거나 요약하여 포함해야 합니다.\n"
+            "2. 전문가 조언의 구체적인 문장, 원칙, 설명을 그대로 인용하거나 요약하여 'reason'에 반영하세요.\n"
+            "3. 이 순간이 아이의 정서, 자존감, 부모-자녀 관계에 어떤 긍정적인 영향을 주는지 분명하게 설명하세요.\n"
+            "4. 모든 서술은 반말이 아닌 **존댓말(예: \"~합니다\", \"~합니다.\")** 체로 공손하게 작성하세요.\n"
+            "5. 한국어로 작성하세요."
+        ),
+    ),
+    (
+        "human",
+        (
+            "긍정적 핵심 순간 (positive key_moment):\n"
+            "대화:\n{dialogue}\n\n"
+            "패턴 힌트: {pattern_hint}\n\n"
+            "초기 reason:\n"
+            "{initial_reason}\n\n"
+            "전문가 조언 (expert_advice):\n{expert_advice}\n\n"
+            "위 정보를 바탕으로 이 순간이 왜 중요한 긍정적 순간인지, "
+            "전문가 조언의 내용을 반영하여 더 풍부하고 구체적인 'reason'을 작성해주세요."
         ),
     ),
 ])
@@ -130,9 +208,86 @@ def _extract_pattern_name(pattern_hint: str) -> Optional[str]:
     return extract_pattern_name_from_manager(pattern_hint)
 
 
+def _map_dialogue_to_ko(
+    dialogue: List[DialogueUtterance], 
+    utterances_labeled: List[Dict[str, Any]]
+) -> List[Dict[str, str]]:
+    """LLM이 반환한 dialogue를 한국어 원문으로 매핑"""
+    mapped = []
+    for utt in dialogue:
+        matched_text = utt.text
+        for orig_utt in utterances_labeled:
+            orig_speaker_raw = (orig_utt.get("speaker", "") or "").lower()
+            if orig_speaker_raw in ["mom", "mother", "parent", "엄마", "아빠"]:
+                orig_speaker = "parent"
+            elif orig_speaker_raw in ["chi", "child", "kid", "아이"]:
+                orig_speaker = "child"
+            else:
+                orig_speaker = orig_speaker_raw
+
+            if utt.speaker.lower() != orig_speaker:
+                continue
+
+            text_en = orig_utt.get("english", "") or ""
+            text_raw = orig_utt.get("text", "") or ""
+
+            if (utt.text in text_en or utt.text in text_raw or
+                    text_en in utt.text or text_raw in utt.text):
+                matched_text = orig_utt.get(
+                    "original_ko",
+                    orig_utt.get("korean", utt.text)
+                )
+                break
+
+        mapped.append({"speaker": utt.speaker, "text": matched_text})
+    return mapped
+
+
+def _create_search_query_from_moment(
+    moment: NeedsImprovementMoment,
+    patterns: List[Dict[str, Any]]
+) -> str:
+    """
+    needs_improvement moment에서 VectorDB 검색 쿼리 생성
+    패턴, 발화 내용, reason(상황 요약)을 키워드로 사용
+    """
+    query_parts = []
+    
+    # 1. 패턴명 추가
+    if moment.pattern_hint:
+        extracted_pattern = _extract_pattern_name(moment.pattern_hint)
+        if extracted_pattern:
+            query_parts.append(extracted_pattern)
+        else:
+            # 패턴명 추출 실패 시 pattern_hint에서 콜론 이전 부분만 사용
+            pattern_name = moment.pattern_hint.split(":")[0].strip() if ":" in moment.pattern_hint else moment.pattern_hint.strip()
+            query_parts.append(pattern_name)
+    
+    # 2. reason에서 키워드 추출 (상황 요약)
+    if moment.reason:
+        # reason의 핵심 키워드만 추출 (너무 길면 앞부분만)
+        reason_keywords = moment.reason[:100]  # 최대 100자
+        query_parts.append(reason_keywords)
+    
+    # 3. 발화 내용 요약 (문제 상황 묘사)
+    if moment.dialogue:
+        dialogue_texts = [utt.text for utt in moment.dialogue]
+        dialogue_summary = " ".join(dialogue_texts)[:100]  # 최대 100자
+        query_parts.append(dialogue_summary)
+    
+    # 쿼리 조합
+    query = " ".join(query_parts)
+    return query if query.strip() else "부모 자녀 상호작용 개선"
+
+
 def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     ⑥ key_moments: 핵심 순간 (LLM)
+    
+    3단계 파이프라인:
+    1) LLM으로 key_moments(positive / needs_improvement / pattern_examples) 추출
+    2) 각 needs_improvement에 대해 키워드로 VectorDB 검색 (각각 독립적으로)
+    3) key_moment + 검색 결과를 LLM에 넣어서 reason, better_response 재생성
     """
     utterances_labeled = state.get("utterances_labeled") or []
     patterns = state.get("patterns") or []
@@ -140,12 +295,12 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
     if not utterances_labeled:
         return {"key_moments": {"positive": [], "needs_improvement": [], "pattern_examples": []}}
     
-    # Structured LLM 사용
+    # ========== 1단계: LLM으로 key_moments 추출 ==========
     structured_llm = get_structured_llm(KeyMomentsResponse, mini=False)
     
-    # 포맷팅 - 발화를 인덱스와 함께 표시 (한국어 원문 사용)
     utterances_str = "\n".join([
-        f"{i}. [{utt.get('speaker', '').lower()}] [{utt.get('label', '')}] {utt.get('original_ko', utt.get('korean', utt.get('text', '')))}"
+        f"{i}. [{utt.get('speaker', '').lower()}] [{utt.get('label', '')}] "
+        f"{utt.get('original_ko', utt.get('korean', utt.get('text', '')))}"
         for i, utt in enumerate(utterances_labeled)
     ])
     patterns_str = "\n".join([
@@ -153,316 +308,228 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
         for p in patterns
     ]) if patterns else "(없음)"
     
-    # VectorDB에서 전문가 조언 검색 (프롬프트에 포함)
-    expert_advice_section = ""
-    prompt_reference_descriptions = []  # 배열로 초기화
-    # USE_VECTOR_DB가 명시적으로 false가 아니면 검색 시도 (기본값: true)
-    use_vector_db_env = os.getenv("USE_VECTOR_DB", "true").lower()
-    use_vector_db = use_vector_db_env != "false"
-    
-    if use_vector_db and patterns:
-        try:
-            # 주요 패턴에 대한 조언 검색
-            pattern_names = [p.get("pattern_name") for p in patterns[:3] if p.get("pattern_name")]
-            if pattern_names:
-                # 첫 번째 패턴으로 검색
-                query = f"{pattern_names[0]}"
-                expert_advice = search_expert_advice(
-                    query=query,
-                    top_k=2,
-                    threshold=0.1
-                )
-                
-                if expert_advice:
-                    # 전문가 조언을 더 길게 포함 (최대 800자) - reason 생성 시 반영되도록
-                    expert_advice_section = "전문가 조언 참고 (반드시 reason 필드에 인용 필수):\n" + "\n".join(
-                        [
-                            f"- {advice['title']} ({advice.get('source', '')}):\n  {advice['content'][:800]}{'...' if len(advice['content']) > 800 else ''}"
-                            for advice in expert_advice
-                        ]
-                    )
-
-                    # positive / summary에서 참고할 레퍼런스 간단 요약 (최대 2개)
-                    prompt_refs = []
-                    seen_refs = set()
-                    for advice in expert_advice:
-                        title = (advice.get("title") or "").strip()
-                        reference = (advice.get("source") or "").strip()  # DB의 reference 컬럼이 source로 매핑됨
-                        if not title:
-                            continue
-                        key = f"{title}|{reference}"
-                        if key in seen_refs:
-                            continue
-                        seen_refs.add(key)
-
-                        if reference:
-                            ref_text = f"{title} ({reference})"
-                        else:
-                            ref_text = title
-
-                        prompt_refs.append(ref_text)
-                        if len(prompt_refs) >= 2:
-                            break
-
-                    prompt_reference_descriptions = prompt_refs if prompt_refs else []
-        except Exception as e:
-            print(f"VectorDB 검색 오류 (프롬프트): {e}")
-            expert_advice_section = ""
-    
-    if not expert_advice_section:
-        expert_advice_section = ""
-    
     try:
         res = (_KEY_MOMENTS_PROMPT | structured_llm).invoke({
             "utterances_labeled": utterances_str,
             "patterns": patterns_str,
-            "expert_advice_section": expert_advice_section,
         })
-        
-        # Pydantic 모델에서 데이터 추출
-        if isinstance(res, KeyMomentsResponse):
-            key_moments_content = res.key_moments
-            
-            # positive 변환 (한국어 원문 사용) - 하나만 선택
-            positive_list = []
-            if key_moments_content.positive:
-                # 첫 번째 positive moment만 사용
-                moment = key_moments_content.positive[0]
-                # dialogue에서 발화자와 텍스트를 매칭하여 한국어 원문 찾기
-                dialogue_with_ko = []
-                for utt in moment.dialogue:
-                    # utterances_labeled에서 매칭되는 발화 찾기
-                    matched_text = utt.text
-                    for orig_utt in utterances_labeled:
-                        # 발화자와 텍스트로 매칭 (한국어 원문 우선)
-                        orig_speaker = orig_utt.get('speaker', '').lower()
-                        if orig_speaker in ['mom', 'mother', 'parent', '엄마', '아빠']:
-                            orig_speaker = 'parent'
-                        elif orig_speaker in ['chi', 'child', 'kid', '아이']:
-                            orig_speaker = 'child'
-                        
-                        if (utt.speaker.lower() == orig_speaker and 
-                            (utt.text in orig_utt.get('english', '') or 
-                             utt.text in orig_utt.get('text', '') or
-                             orig_utt.get('english', '') in utt.text or
-                             orig_utt.get('text', '') in utt.text)):
-                            matched_text = orig_utt.get('original_ko', orig_utt.get('korean', utt.text))
-                            break
-                    
-                    dialogue_with_ko.append({
-                        "speaker": utt.speaker,
-                        "text": matched_text
-                    })
-                
-                positive_list.append({
-                    "dialogue": dialogue_with_ko,
-                    "reason": moment.reason,
-                    "pattern_hint": moment.pattern_hint + " 패턴 발견",
-                    # VectorDB에서 찾은 레퍼런스 요약 (expert_advice_section 기반, 최대 2개)
-                    "reference_descriptions": prompt_reference_descriptions
-                })
-            
-            # needs_improvement 변환 (한국어 원문 사용) + VectorDB 검색
-            # 첫 번째만 needs_improvement로 사용, 나머지는 pattern_examples에 추가
-            needs_improvement_list = []
-            remaining_needs_improvement_moments = []  # needs_improvement에 포함되지 않은 나머지 moments
-            # USE_VECTOR_DB가 명시적으로 false가 아니면 검색 시도 (기본값: true)
-            use_vector_db_env = os.getenv("USE_VECTOR_DB", "true").lower()
-            use_vector_db = use_vector_db_env != "false"
-            
-            # 모든 needs_improvement moments 처리
-            for idx, moment in enumerate(key_moments_content.needs_improvement):
-                # needs_improvement의 reason과 dialogue를 확인하여 부적절한 분석 필터링
-                reason = moment.reason or ""
-                dialogue_text = " ".join([utt.text for utt in moment.dialogue])
-                
-                # 질문형 발화나 선택권을 주는 발화는 needs_improvement에서 제외
-                question_indicators = [
-                    "할까", "할래", "할까요", "할래요",
-                    "어떻게 생각해", "어떻게 생각하니", "어떻게 생각해요",
-                    "하고 싶어", "하고 싶니", "하고 싶어요",
-                    "어떤", "어느", "선택", "원해", "원하니", "원해요",
-                    "맡아도 될까", "해도 될까", "해도 될래",
-                    "괜찮을까", "괜찮을래", "좋을까", "좋을래"
-                ]
-                
-                # dialogue에 질문형 지시어가 포함되어 있으면 제외
-                if any(indicator in dialogue_text for indicator in question_indicators):
-                    print(f"[Key Moments] 질문형 발화를 needs_improvement에서 제외: {dialogue_text[:50]}...")
-                    continue
-                
-                # reason이 잘못된 분석인 경우도 제외 (예: "선택권을 주지 않고"라고 했는데 실제로는 질문형)
-                incorrect_reason_indicators = ["선택권을 주지 않고", "의견을 반영하지", "선택할 수 있는 기회를 주지"]
-                if any(indicator in reason for indicator in incorrect_reason_indicators):
-                    # dialogue가 실제로 질문형이면 제외
-                    if any(indicator in dialogue_text for indicator in question_indicators):
-                        print(f"[Key Moments] 잘못된 reason 분석을 needs_improvement에서 제외: {reason[:50]}...")
-                        continue
-                
-                # 명령 관련 패턴인데 실제로는 질문형인 경우도 제외
-                pattern_hint = moment.pattern_hint or ""
-                # 정규화된 부정적 패턴 이름 중 명령 관련 패턴 확인
-                negative_patterns = get_negative_pattern_names_normalized()
-                pattern_hint_normalized = pattern_hint.replace(" ", "").lower()
-                is_command_pattern = (
-                    "명령" in pattern_hint or 
-                    "과도한명령" in pattern_hint_normalized or
-                    any("명령" in p for p in negative_patterns if pattern_hint_normalized in p or p in pattern_hint_normalized)
-                )
-                if is_command_pattern:
-                    # 실제 발화가 질문형이면 제외
-                    if any(indicator in dialogue_text for indicator in question_indicators):
-                        print(f"[Key Moments] 명령 관련 패턴이지만 질문형 발화라서 needs_improvement에서 제외: {dialogue_text[:50]}...")
-                        continue
-                
-                dialogue_with_ko = []
-                for utt in moment.dialogue:
-                    matched_text = utt.text
-                    for orig_utt in utterances_labeled:
-                        orig_speaker = orig_utt.get('speaker', '').lower()
-                        if orig_speaker in ['mom', 'mother', 'parent', '엄마', '아빠']:
-                            orig_speaker = 'parent'
-                        elif orig_speaker in ['chi', 'child', 'kid', '아이']:
-                            orig_speaker = 'child'
-                        
-                        if (utt.speaker.lower() == orig_speaker and 
-                            (utt.text in orig_utt.get('english', '') or 
-                             utt.text in orig_utt.get('text', '') or
-                             orig_utt.get('english', '') in utt.text or
-                             orig_utt.get('text', '') in utt.text)):
-                            matched_text = orig_utt.get('original_ko', orig_utt.get('korean', utt.text))
-                            break
-                    
-                    dialogue_with_ko.append({
-                        "speaker": utt.speaker,
-                        "text": matched_text
-                    })
-                
-                # VectorDB 검색 (needs_improvement용)
-                expert_references = []
-                extracted_pattern = None
-                if use_vector_db:
-                    try:
-                        # 패턴명 추출
-                        extracted_pattern = _extract_pattern_name(moment.pattern_hint) if moment.pattern_hint else None
-                        
-                        print(f"[VectorDB] needs_improvement 검색 시작 - pattern_hint: {moment.pattern_hint}, extracted: {extracted_pattern}")
-                        
-                        moment_dict = {
-                            "pattern_hint": extracted_pattern or moment.pattern_hint,
-                            "reason": moment.reason
-                        }
-                        query = _build_needs_improvement_query(moment_dict)
-                        
-                        print(f"[VectorDB] 검색 쿼리: {query}")
-                        
-                        # VectorDB 검색
-                        expert_advice = search_expert_advice(
-                            query=query,
-                            top_k=int(os.getenv("VECTOR_SEARCH_TOP_K_NEEDS_IMPROVEMENT", "2")),
-                            threshold=float(os.getenv("VECTOR_SEARCH_THRESHOLD", "0.3")) # 기본값 0.3으로 변경
-                        )
-                        
-                        print(f"[VectorDB] 검색 결과 개수: {len(expert_advice)}")
-                        
-                        # 레퍼런스 정보 구성
-                        expert_references = [
-                            {
-                                "title": advice["title"],
-                                "source": advice["source"],
-                                "author": advice.get("author", ""),
-                                "excerpt": advice["content"][:200] + "..." if len(advice["content"]) > 200 else advice["content"],
-                                "relevance_score": advice["relevance_score"]
-                            }
-                            for advice in expert_advice
-                        ]
-                        
-                        if expert_references:
-                            print(f"[VectorDB] 검색 성공 - {len(expert_references)}개 레퍼런스 추가됨")
-                        else:
-                            print(f"[VectorDB] 검색 결과 없음 (threshold 미달 또는 필터 조건 불일치)")
-                    except Exception as e:
-                        print(f"[VectorDB] 검색 오류 발생: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        expert_references = []
-                else:
-                    print(f"[VectorDB] 검색 비활성화됨 (USE_VECTOR_DB={use_vector_db_env})")
-                
-                # 레퍼런스 설명 생성 (출처와 작성자 나열) - 배열로 변경
-                reference_descriptions = []
-                if expert_references:
-                    # source와 author 필드에서 출처와 작성자 추출 (중복 제거)
-                    sources = list(set([ref.get("source", "") for ref in expert_references if ref.get("source")]))
-                    authors = list(set([ref.get("author", "") for ref in expert_references if ref.get("author")]))
-                    
-                    # sources와 authors를 각각 배열에 추가
-                    if sources:
-                        reference_descriptions.extend(sources)
-                    if authors:
-                        reference_descriptions.extend(authors)
-                
-                # 첫 번째 것만 needs_improvement_list에 추가
-                if idx == 0:
-                    needs_improvement_list.append({
-                        "dialogue": dialogue_with_ko,
-                        "reason": moment.reason,
-                        "better_response": moment.better_response,
-                        "pattern_hint": moment.pattern_hint,
-                        "expert_references": expert_references if expert_references else [],  # None 대신 빈 배열
-                        "reference_descriptions": reference_descriptions
-                    })
-                else:
-                    # 나머지는 pattern_examples에 추가하기 위해 저장
-                    remaining_needs_improvement_moments.append({
-                        "dialogue": dialogue_with_ko,
-                        "reason": moment.reason,
-                        "better_response": moment.better_response,
-                        "pattern_hint": moment.pattern_hint,
-                        "expert_references": expert_references if expert_references else [],
-                        "reference_descriptions": reference_descriptions
-                    })
-            
-            # pattern_examples 변환 (한국어 원문 사용)
-            # LLM이 반환한 pattern_examples는 포함하지 않고, needs_improvement에서 사용되지 않은 것만 포함
-            pattern_examples_list = []
-            
-            # needs_improvement에 포함되지 않은 나머지 needs_improvement moments를 pattern_examples에 추가
-            for moment_data in remaining_needs_improvement_moments:
-                # pattern_hint에서 패턴명 추출
-                pattern_hint = moment_data.get("pattern_hint", "")
-                pattern_name = _extract_pattern_name(pattern_hint) if pattern_hint else "개선 필요"
-                
-                # 이미 pattern_examples_list에 있는지 확인 (중복 방지)
-                existing_pattern_names = [ex.get("pattern_name", "").replace(" ", "") for ex in pattern_examples_list]
-                pattern_name_normalized = pattern_name.replace(" ", "") if pattern_name else ""
-                
-                if pattern_name_normalized and pattern_name_normalized not in existing_pattern_names:
-                    pattern_examples_list.append({
-                        "pattern_name": pattern_name,
-                        "occurrences": 1,
-                        "dialogue": moment_data.get("dialogue", []),
-                        "problem_explanation": moment_data.get("reason", "개선이 필요한 순간입니다."),
-                        "suggested_response": moment_data.get("better_response", "더 나은 응답을 고려해보세요.")
-                    })
-            
-            return {
-                "key_moments": {
-                    "positive": positive_list,
-                    "needs_improvement": needs_improvement_list,
-                    "pattern_examples": pattern_examples_list
-                }
-            }
-        
-        # 폴백: 예상치 못한 형식
-        return _fallback_key_moments(utterances_labeled, patterns)
-        
     except Exception as e:
-        print(f"Key moments error: {e}")
+        print(f"Key moments error (LLM): {e}")
         import traceback
         traceback.print_exc()
-        # 에러 시 폴백 사용
         return _fallback_key_moments(utterances_labeled, patterns)
+    
+    if not isinstance(res, KeyMomentsResponse):
+        return _fallback_key_moments(utterances_labeled, patterns)
+    
+    key_moments_content = res.key_moments
+    
+    # ========== 2단계: 한국어 원문 매핑 ==========
+    
+    # pattern_examples 변환 (먼저 처리)
+    pattern_examples_list: List[Dict[str, Any]] = []
+    for ex in key_moments_content.pattern_examples:
+        dialogue_with_ko = _map_dialogue_to_ko(ex.dialogue, utterances_labeled)
+        pattern_examples_list.append({
+            "pattern_name": ex.pattern_name,
+            "occurrences": ex.occurrences,
+            "dialogue": dialogue_with_ko,
+            "problem_explanation": ex.problem_explanation,
+            "suggested_response": ex.suggested_response,
+        })
+    
+    # ========== 3단계: positive / needs_improvement 처리 (VectorDB 검색 + LLM 재생성) ==========
+    use_vector_db_env = os.getenv("USE_VECTOR_DB", "true").lower()
+    use_vector_db = use_vector_db_env != "false"
+    
+    # positive 개선용 LLM
+    improve_positive_llm = get_structured_llm(ImprovedPositiveMoment, mini=False)
+    
+    # positive 변환 + (선택적) VectorDB + LLM 개선
+    positive_list: List[Dict[str, Any]] = []
+    for moment in key_moments_content.positive:
+        dialogue_with_ko = _map_dialogue_to_ko(moment.dialogue, utterances_labeled)
+        
+        expert_references: List[Dict[str, Any]] = []
+        reference_descriptions: List[str] = []
+        improved_reason = moment.reason
+        
+        if use_vector_db:
+            try:
+                # positive에서도 동일한 방식으로 검색 쿼리 생성
+                query = _create_search_query_from_moment(moment, patterns)
+                print(f"[VectorDB] positive 검색 - query: {query}")
+                
+                expert_advice = search_expert_advice(
+                    query=query,
+                    top_k=int(os.getenv("VECTOR_SEARCH_TOP_K_POSITIVE", "2")),
+                    threshold=float(os.getenv("VECTOR_SEARCH_THRESHOLD_POSITIVE", "0.2")),
+                )
+                
+                for advice in expert_advice:
+                    content = advice.get("content", "") or ""
+                    excerpt = content[:200] + "..." if len(content) > 200 else content
+                    expert_references.append({
+                        "title": advice.get("title", ""),
+                        "source": advice.get("source", ""),
+                        "author": advice.get("author", ""),
+                        "excerpt": excerpt,
+                        "relevance_score": advice.get("relevance_score", 0.0),
+                    })
+                
+                if expert_references:
+                    sources = list({r.get("source", "") for r in expert_references if r.get("source")})
+                    authors = list({r.get("author", "") for r in expert_references if r.get("author")})
+                    reference_descriptions = sources + authors
+                    print(f"[VectorDB] positive 검색 성공 - {len(expert_references)}개 레퍼런스 추가됨")
+                else:
+                    print(f"[VectorDB] positive 검색 결과 없음")
+            except Exception as e:
+                print(f"[VectorDB] positive 검색 오류: {e}")
+                import traceback
+                traceback.print_exc()
+                expert_references = []
+                reference_descriptions = []
+        
+        # positive reason을 전문가 조언으로 강화
+        if expert_references:
+            try:
+                expert_advice_text = "\n".join([
+                    f"- {ref['title']} ({ref.get('source', '')}):\n  {ref['excerpt']}"
+                    for ref in expert_references
+                ])
+                dialogue_text = "\n".join([
+                    f"{d['speaker']}: {d['text']}"
+                    for d in dialogue_with_ko
+                ])
+                
+                improved_res = (_IMPROVE_POSITIVE_PROMPT | improve_positive_llm).invoke({
+                    "dialogue": dialogue_text,
+                    "pattern_hint": moment.pattern_hint or "",
+                    "initial_reason": moment.reason,
+                    "expert_advice": expert_advice_text,
+                })
+                
+                if isinstance(improved_res, ImprovedPositiveMoment):
+                    improved_reason = improved_res.reason
+                    print("[Key Moments] positive reason 개선 완료")
+                else:
+                    print("[Key Moments] positive reason 개선 실패 - 기본값 사용")
+            except Exception as e:
+                print(f"[Key Moments] positive 개선 오류: {e}")
+                import traceback
+                traceback.print_exc()
+                # 오류 시 초기 reason 사용
+        
+        positive_list.append({
+            "dialogue": dialogue_with_ko,
+            "reason": improved_reason,
+            "pattern_hint": moment.pattern_hint,
+            "reference_descriptions": reference_descriptions,
+        })
+    
+    # needs_improvement 처리 (VectorDB 검색 + LLM 재생성)
+    needs_improvement_list: List[Dict[str, Any]] = []
+    # needs_improvement 개선용 LLM
+    improve_llm = get_structured_llm(ImprovedNeedsImprovement, mini=False)
+    
+    for moment in key_moments_content.needs_improvement:
+        dialogue_with_ko = _map_dialogue_to_ko(moment.dialogue, utterances_labeled)
+        
+        expert_references: List[Dict[str, Any]] = []
+        reference_descriptions: List[str] = []
+        improved_reason = moment.reason
+        improved_better_response = moment.better_response
+        
+        # 2-1. VectorDB 검색: 각 needs_improvement마다 독립적으로 검색
+        if use_vector_db:
+            try:
+                query = _create_search_query_from_moment(moment, patterns)
+                print(f"[VectorDB] needs_improvement 검색 - query: {query}")
+                
+                expert_advice = search_expert_advice(
+                    query=query,
+                    top_k=int(os.getenv("VECTOR_SEARCH_TOP_K_NEEDS_IMPROVEMENT", "2")),
+                    threshold=float(os.getenv("VECTOR_SEARCH_THRESHOLD", "0.3")),
+                )
+                
+                for advice in expert_advice:
+                    content = advice.get("content", "") or ""
+                    excerpt = content[:200] + "..." if len(content) > 200 else content
+                    expert_references.append({
+                        "title": advice.get("title", ""),
+                        "source": advice.get("source", ""),
+                        "author": advice.get("author", ""),
+                        "excerpt": excerpt,
+                        "relevance_score": advice.get("relevance_score", 0.0),
+                    })
+                
+                if expert_references:
+                    sources = list({r.get("source", "") for r in expert_references if r.get("source")})
+                    authors = list({r.get("author", "") for r in expert_references if r.get("author")})
+                    reference_descriptions = sources + authors
+                    print(f"[VectorDB] 검색 성공 - {len(expert_references)}개 레퍼런스 추가됨")
+                else:
+                    print(f"[VectorDB] 검색 결과 없음")
+            except Exception as e:
+                print(f"[VectorDB] 검색 오류: {e}")
+                import traceback
+                traceback.print_exc()
+                expert_references = []
+                reference_descriptions = []
+        
+        # 2-2. key_moment + 검색 결과를 LLM에 넣어서 reason, better_response 재생성
+        if expert_references:
+            try:
+                # 전문가 조언 포맷팅
+                expert_advice_text = "\n".join([
+                    f"- {ref['title']} ({ref.get('source', '')}):\n  {ref['excerpt']}"
+                    for ref in expert_references
+                ])
+                
+                # 대화 포맷팅
+                dialogue_text = "\n".join([
+                    f"{d['speaker']}: {d['text']}"
+                    for d in dialogue_with_ko
+                ])
+                
+                # LLM으로 reason, better_response 재생성
+                improved_res = (_IMPROVE_NEEDS_IMPROVEMENT_PROMPT | improve_llm).invoke({
+                    "dialogue": dialogue_text,
+                    "pattern_hint": moment.pattern_hint or "",
+                    "initial_reason": moment.reason,
+                    "initial_better_response": moment.better_response,
+                    "expert_advice": expert_advice_text,
+                })
+                
+                if isinstance(improved_res, ImprovedNeedsImprovement):
+                    improved_reason = improved_res.reason
+                    improved_better_response = improved_res.better_response
+                    print(f"[Key Moments] needs_improvement 개선 완료")
+                else:
+                    print(f"[Key Moments] needs_improvement 개선 실패 - 기본값 사용")
+            except Exception as e:
+                print(f"[Key Moments] needs_improvement 개선 오류: {e}")
+                import traceback
+                traceback.print_exc()
+                # 오류 시 초기값 사용
+        
+        needs_improvement_list.append({
+            "dialogue": dialogue_with_ko,
+            "reason": improved_reason,
+            "better_response": improved_better_response,
+            "pattern_hint": moment.pattern_hint,
+            "expert_references": expert_references,
+            "reference_descriptions": reference_descriptions,
+        })
+    
+    return {
+        "key_moments": {
+            "positive": positive_list,
+            "needs_improvement": needs_improvement_list,
+            "pattern_examples": pattern_examples_list,
+        }
+    }
 
 
 def _fallback_key_moments(utterances_labeled: List[Dict[str, Any]], patterns: List[Dict[str, Any]]) -> Dict[str, Any]:
