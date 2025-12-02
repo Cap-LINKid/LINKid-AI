@@ -18,8 +18,8 @@ psycopg2-binary>=2.9.9  # PostgreSQL driver for pgvector
 langchain-postgres>=0.0.6  # LangChain PGVector integration
 
 # ML Models
-transformers>=4.30.0
-torch>=2.0.0
+# transformers>=4.30.0
+# torch>=2.0.0
 
 # FastAPI
 fastapi>=0.104.0
