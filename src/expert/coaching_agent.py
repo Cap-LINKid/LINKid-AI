@@ -74,12 +74,15 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "   - 전문가 레퍼런스에서 제시한 구체적 방법 (말문장 예시, 태도 변화, 훈육 원칙 등)\n"
             "3) summary에는 반드시 다음이 포함되어야 함:\n"
             "   - 왜 이 챌린지를 선택했는지 (어떤 패턴과 상황이 반복되었는지)\n"
-            "   - 최소 1개 이상의 **구체적인 예시**:\n"
-            "     - 실제 대화 문장 예시 1개 이상 (부모/아이 발화)\n"
-            "       또는\n"
-            "     - 전문가 레퍼런스 내용 요약 1개 이상 (어떤 조언/원칙을 따르는지)\n"
-            "   예) \"부모가 아이에게 '너 때문에 힘들어'라고 반복해서 말하는 비판적 화법이 관찰되어, "
-            "전문가 조언에서 제안한 '행동만 분리해서 지적하기' 원칙을 적용한 챌린지를 설계했습니다.\"\n"
+            "   - **반드시 전문가 레퍼런스 내용을 인용**:\n"
+            "     - expert_advice_section에 '[needs_improvement 참고]'로 표시된 전문가 조언이 있으면, "
+            "     반드시 해당 조언의 핵심 내용을 직접 인용하여 summary에 포함해야 합니다.\n"
+            "     - 전문가 조언의 구체적인 문장이나 원칙을 그대로 인용하거나 요약하여 포함하세요.\n"
+            "     - 예) \"전문가 조언에 따르면, '충격 요법은 부모의 착각입니다. 따끔하게 독한 말을 하면 "
+            "     아이가 정신을 차리고 행동을 바꿀 거라 기대하지만, 이는 부모만의 착각일 수 있습니다. "
+            "     자녀에게 그런 말은 동기부여가 아니라 인격적인 공격으로 다가옵니다.' 따라서 비난 대신 "
+            "     공감과 이해를 바탕으로 한 대화 방식을 적용한 챌린지를 설계했습니다.\"\n"
+            "   - 추가로 실제 대화 문장 예시 1개 이상도 포함하면 더 좋습니다.\n"
             "4) rationale은 다음 조건에서만 포함:\n"
             "   - expert_advice_section에 실제 레퍼런스가 존재할 때\n"
             "   - 패턴·대화·레퍼런스 간 연결 근거를 1-2문장으로 정리할 때\n"
@@ -105,8 +108,10 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "- 챌린지는 반드시 위 **부정적 패턴**과 **구체적인 대화 장면**에 직접 대응해야 합니다.\n"
             "- actions와 goal은 전문가 조언을 실제 부모-자녀 대화에 적용하는 형태로, "
             "구체적인 말문장/행동 수준까지 내려가서 작성해주세요.\n"
-            "- summary에는 왜 이 챌린지를 생성했는지와, 대화 내용 또는 레퍼런스 내용 중 "
-            "최소 한 가지 이상의 구체적인 예시를 반드시 포함하세요."
+            "- **중요**: expert_advice_section에 '[needs_improvement 참고]'로 표시된 전문가 조언이 있으면, "
+            "summary에 반드시 해당 조언의 핵심 내용을 직접 인용하거나 요약하여 포함해야 합니다. "
+            "전문가 조언의 구체적인 문장, 원칙, 설명을 그대로 인용하거나 요약하여 summary에 반영하세요. "
+            "이것은 선택사항이 아니라 필수 요구사항입니다."
         ),
     ),
 ])
@@ -409,7 +414,9 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         expert_advice_sections.append(advice_section)
                     
                     # needs_improvement의 expert_references에서 excerpt 추가 (중복 제거)
+                    # needs_improvement의 expert_references를 우선적으로 포함 (더 중요하므로)
                     seen_ref_titles = set([advice.get("title", "") for advice in selected_advice])
+                    needs_improvement_refs = []
                     if isinstance(key_moments, dict):
                         needs_improvement = key_moments.get("needs_improvement", [])
                         for moment in needs_improvement:
@@ -422,14 +429,18 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                                 # 중복 제거: 이미 VectorDB 검색 결과에 포함된 경우 제외
                                 if title and title not in seen_ref_titles and excerpt:
                                     seen_ref_titles.add(title)
-                                    # excerpt를 더 길게 포함 (최대 600자)
-                                    excerpt_text = excerpt[:600] if len(excerpt) > 600 else excerpt
+                                    # excerpt를 최대한 많이 포함 (최대 1000자, 전체가 1000자 이하면 전체 포함)
+                                    excerpt_text = excerpt[:1000] if len(excerpt) > 1000 else excerpt
                                     if source:
-                                        ref_section = f"- [needs_improvement 참고] {title} ({source})\n  {excerpt_text}"
+                                        ref_section = f"- [needs_improvement 참고 - 반드시 인용 필수] {title} ({source})\n  {excerpt_text}"
                                     else:
-                                        ref_section = f"- [needs_improvement 참고] {title}\n  {excerpt_text}"
-                                    expert_advice_sections.append(ref_section)
-                                    print(f"[Coaching] needs_improvement expert_reference 추가: {title}")
+                                        ref_section = f"- [needs_improvement 참고 - 반드시 인용 필수] {title}\n  {excerpt_text}"
+                                    needs_improvement_refs.append(ref_section)
+                                    print(f"[Coaching] needs_improvement expert_reference 추가: {title} (excerpt 길이: {len(excerpt_text)})")
+                    
+                    # needs_improvement 참고 섹션을 맨 앞에 배치 (우선순위)
+                    if needs_improvement_refs:
+                        expert_advice_sections = needs_improvement_refs + expert_advice_sections
                     
                     expert_advice_section = "전문가 조언 및 챌린지 가이드:\n" + "\n".join(expert_advice_sections)
                     
@@ -519,14 +530,14 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                     source = ref.get("source", "")
                     
                     if title and excerpt:
-                        # excerpt를 더 길게 포함 (최대 600자)
-                        excerpt_text = excerpt[:600] if len(excerpt) > 600 else excerpt
+                        # excerpt를 최대한 많이 포함 (최대 1000자, 전체가 1000자 이하면 전체 포함)
+                        excerpt_text = excerpt[:1000] if len(excerpt) > 1000 else excerpt
                         if source:
-                            ref_section = f"- [needs_improvement 참고] {title} ({source})\n  {excerpt_text}"
+                            ref_section = f"- [needs_improvement 참고 - 반드시 인용 필수] {title} ({source})\n  {excerpt_text}"
                         else:
-                            ref_section = f"- [needs_improvement 참고] {title}\n  {excerpt_text}"
+                            ref_section = f"- [needs_improvement 참고 - 반드시 인용 필수] {title}\n  {excerpt_text}"
                         expert_advice_sections.append(ref_section)
-                        print(f"[Coaching] needs_improvement expert_reference 추가 (빈 섹션): {title}")
+                        print(f"[Coaching] needs_improvement expert_reference 추가 (빈 섹션): {title} (excerpt 길이: {len(excerpt_text)})")
         
         if expert_advice_sections:
             expert_advice_section = "전문가 조언 및 챌린지 가이드:\n" + "\n".join(expert_advice_sections)

@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 프로젝트 파일 복사
 COPY data ./data
 COPY src ./src
-COPY models ./models
+# COPY models ./models
 COPY langgraph.json ./
 
 # 포트 노출

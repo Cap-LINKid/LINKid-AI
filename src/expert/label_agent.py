@@ -36,8 +36,15 @@ def label_utterances_node(state: Dict[str, Any]) -> Dict[str, Any]:
             f"{utt.get('speaker', 'Parent')}: {utt.get('english', utt.get('text', ''))}"
             for utt in utterances_en
         ])
+        # 한국어 발화를 텍스트로 합치기 (DPICS LLM 라벨링용)
+        utterances_text_ko = "\n".join([
+            f"{utt.get('speaker', 'Parent')}: {utt.get('korean', utt.get('original_ko', ''))}"
+            for utt in utterances_en
+            if utt.get('korean') or utt.get('original_ko')
+        ])
     else:
         utterances_text = "\n".join(utterances_en)
+        utterances_text_ko = ""  # 기존 형식에는 한국어 정보 없음
     
     # DPICS 라벨링 (ELECTRA 모델 또는 LLM 기반)
     if USE_ELECTRA and ELECTRA_AVAILABLE:
@@ -45,9 +52,11 @@ def label_utterances_node(state: Dict[str, Any]) -> Dict[str, Any]:
             labeled_pairs = label_lines_dpics_electra(utterances_text)
         except Exception as e:
             print(f"ELECTRA 모델 라벨링 실패, LLM으로 폴백: {e}")
-            labeled_pairs = label_lines_dpics_llm(utterances_text)
+            # LLM은 한국어 발화를 대상으로 라벨링
+            labeled_pairs = label_lines_dpics_llm(utterances_text_ko if utterances_text_ko else utterances_text)
     else:
-        labeled_pairs = label_lines_dpics_llm(utterances_text)
+        # LLM은 한국어 발화를 대상으로 라벨링
+        labeled_pairs = label_lines_dpics_llm(utterances_text_ko if utterances_text_ko else utterances_text)
     
     # 발화와 라벨을 딕셔너리 리스트로 변환
     # LLM이 반환한 line이 원본과 정확히 일치하지 않을 수 있으므로,
