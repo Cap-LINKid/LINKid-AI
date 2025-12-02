@@ -89,3 +89,5 @@ artifacts/
 docker-compose.override.yml
 .langgraph_api/
 .env.*
+
+models2/
