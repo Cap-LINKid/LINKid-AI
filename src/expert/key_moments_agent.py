@@ -53,6 +53,26 @@ class KeyMomentsResponse(BaseModel):
     key_moments: KeyMomentsContent = Field(description="핵심 순간 객체")
 
 
+def _is_negative_pattern_example(pattern_name: str) -> bool:
+    """
+    pattern_examples 중 부정적 패턴에 해당하는지 여부 판단
+    (pattern_manager의 부정 패턴 목록과 이름을 정규화(공백 제거)하여 매칭)
+    """
+    if not pattern_name:
+        return False
+    
+    negative_normalized = get_negative_pattern_names_normalized()
+    name_norm = pattern_name.replace(" ", "")
+    
+    # 정확 일치 또는 부분 포함 관계까지 허용
+    for neg in negative_normalized:
+        if not neg:
+            continue
+        if name_norm == neg or name_norm in neg or neg in name_norm:
+            return True
+    return False
+
+
 _KEY_MOMENTS_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
@@ -338,6 +358,12 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "suggested_response": ex.suggested_response,
         })
     
+    # pattern_examples 중 부정적 패턴만 유지
+    pattern_examples_list = [
+        ex for ex in pattern_examples_list
+        if _is_negative_pattern_example(ex.get("pattern_name", ""))
+    ]
+    
     # ========== 3단계: positive / needs_improvement 처리 (VectorDB 검색 + LLM 재생성) ==========
     use_vector_db_env = os.getenv("USE_VECTOR_DB", "true").lower()
     use_vector_db = use_vector_db_env != "false"
@@ -560,13 +586,16 @@ def _fallback_key_moments(utterances_labeled: List[Dict[str, Any]], patterns: Li
                     dialogue.append({"speaker": speaker, "text": text})
         
         if dialogue:
-            pattern_examples_list.append({
-                "pattern_name": pattern.get("pattern_name", "Unknown Pattern"),
-                "occurrences": pattern.get("occurrence_count", 1),
-                "dialogue": dialogue,
-                "problem_explanation": pattern.get("description", "패턴이 감지되었습니다."),
-                "suggested_response": pattern.get("suggested_response", "더 나은 응답을 고려해보세요.")
-            })
+            pattern_name = pattern.get("pattern_name", "Unknown Pattern")
+            # 폴백에서도 부정적 패턴만 pattern_examples에 포함
+            if _is_negative_pattern_example(pattern_name):
+                pattern_examples_list.append({
+                    "pattern_name": pattern_name,
+                    "occurrences": pattern.get("occurrence_count", 1),
+                    "dialogue": dialogue,
+                    "problem_explanation": pattern.get("description", "패턴이 감지되었습니다."),
+                    "suggested_response": pattern.get("suggested_response", "더 나은 응답을 고려해보세요.")
+                })
     
     # 긍정적 순간 찾기 (PR 라벨이 있는 발화, 한국어 원문 사용)
     for i, utt in enumerate(utterances_labeled):
