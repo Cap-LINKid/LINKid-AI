@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from typing import Dict, Any, List, Optional
@@ -60,33 +61,29 @@ class KeyMomentsResult(BaseModel):
     pattern_examples: List[PatternExample] = Field(default_factory=list)
 
 
-class KeyMomentsResponse(BaseModel):
-    key_moments: KeyMomentsResult
+class PositiveMomentResponse(BaseModel):
+    positive: List[PositiveMoment] = Field(default_factory=list)
+
+
+class NeedsImprovementMomentResponse(BaseModel):
+    needs_improvement: List[NeedsImprovementMoment] = Field(default_factory=list)
+
+
+class PatternExampleResponse(BaseModel):
+    pattern_examples: List[PatternExample] = Field(default_factory=list)
 
 
 # -------------------------------------------------------------------------
-# 2. LLM 프롬프트 (최종 완성본)
+# 2. LLM 프롬프트 (각 moment 타입별로 분리)
 # -------------------------------------------------------------------------
 
-_GENERATE_ADVICE_PROMPT = ChatPromptTemplate.from_messages([
+_POSITIVE_MOMENT_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         """
 당신은 아동 심리 및 부모 교육 전문가입니다.
 입력으로 부모-자녀 대화, 탐지된 패턴 정보, 전문가 조언을 바탕으로
-Key Moments 분석을 생성해야 합니다.
-
-==============================
-📌 절대 지켜야 할 규칙
-==============================
-
-1) Positive: 반드시 전문가 excerpt 1개 포함
-2) Needs Improvement: 전문가 excerpt 1~2개 포함
-3) reference_descriptions: 최대 2개
-4) Pattern Examples: 반드시 "1개만"
-5) reason: 전문가 excerpt와 대화의 맥락과 상황을 파악하여 2~4 줄 정도로 길고 구체적으로 나올 수 있도록.
-6) better_response: 부모가 실제 사용할 수 있는 대사 형태와 이런 대안이 나온 이유를 뽑힌 전문가 excerpt를 반영해서 구체적으로 작성하세요.
-7) tone은 따뜻하고 전문적이지만, ~~합니다.와 같이 공손하게 말할 수 있도록한다.
+Positive Moment 분석을 생성해야 합니다.
 
 ==============================
 📌 Positive Moment 규칙
@@ -94,23 +91,8 @@ Key Moments 분석을 생성해야 합니다.
 - positive_context의 pattern과 dialogue만 사용
 - 전문가 조언 excerpt 1개를 reason에 자연스럽게 섞어 쓰기
 - reference_descriptions는 최대 2개
-
-==============================
-📌 Needs Improvement 규칙
-==============================
-- 가장 심각한 부정 패턴 하나만 사용
-- reason: 상황 요약 → 문제점 → 아동 발달 영향 → 전문가 조언 인용(1~2개)
-- better_response: 실제 사용할 수 있는 구체 대사
-- expert_references: 빈 배열 []로 설정 (후처리에서 자동으로 채워짐)
-- reference_descriptions: 최대 2개
-
-==============================
-📌 Pattern Examples 규칙
-==============================
-- Needs Improvement 다음으로 심각한 1개의 패턴을 선택하여 생성
-- 가능하면 생성하되, 생성하지 못해도 후처리에서 자동으로 채워짐
-- 이유와 조언은 전문가 excerpt와 대화의 맥락과 상황을 파악하여 구체적으로 작성할 수 있도록 한다.
-- succinct한 problem_explanation & suggested_response 작성하고, 1~2줄 정도로 구체적으로 나올 수 있도록 작성한다.
+- reason: 전문가 excerpt와 대화의 맥락과 상황을 파악하여 2~4 줄 정도로 길고 구체적으로 작성
+- tone은 따뜻하고 전문적이지만, ~~합니다.와 같이 공손하게 말할 수 있도록 한다.
 
 ==============================
 📌 입력 데이터
@@ -118,21 +100,86 @@ Key Moments 분석을 생성해야 합니다.
 [Positive Context]
 {positive_context}
 
+[Expert References]
+{expert_references}
+
+위 정보를 바탕으로 positive moment를 생성하십시오.
+"""
+    ),
+    (
+        "human",
+        "위 내용을 반영하여 positive moment를 생성하세요."
+    ),
+])
+
+_NEEDS_IMPROVEMENT_MOMENT_PROMPT = ChatPromptTemplate.from_messages([
+    (
+        "system",
+        """
+당신은 아동 심리 및 부모 교육 전문가입니다.
+입력으로 부모-자녀 대화, 탐지된 패턴 정보, 전문가 조언을 바탕으로
+Needs Improvement Moment 분석을 생성해야 합니다.
+
+==============================
+📌 Needs Improvement 규칙
+==============================
+- 가장 심각한 부정 패턴 하나만 사용
+- reason: 상황 요약 → 문제점 → 아동 발달 영향 → 전문가 조언 인용(1~2개)
+- better_response: 실제 사용할 수 있는 구체 대사
+- reference_descriptions: 최대 2개
+- reason: 전문가 excerpt와 대화의 맥락과 상황을 파악하여 2~4 줄 정도로 길고 구체적으로 작성
+- better_response: 부모가 실제 사용할 수 있는 대사 형태와 이런 대안이 나온 이유를 뽑힌 전문가 excerpt를 반영해서 구체적으로 작성
+- tone은 따뜻하고 전문적이지만, ~~합니다.와 같이 공손하게 말할 수 있도록 한다.
+
+==============================
+📌 입력 데이터
+==============================
 [Needs Improvement Context]
 {improvement_context}
 
+[Expert References]
+{expert_references}
+
+위 정보를 바탕으로 needs improvement moment를 생성하십시오.
+"""
+    ),
+    (
+        "human",
+        "위 내용을 반영하여 needs improvement moment를 생성하세요."
+    ),
+])
+
+_PATTERN_EXAMPLE_PROMPT = ChatPromptTemplate.from_messages([
+    (
+        "system",
+        """
+당신은 아동 심리 및 부모 교육 전문가입니다.
+입력으로 부모-자녀 대화, 탐지된 패턴 정보, 전문가 조언을 바탕으로
+Pattern Example 분석을 생성해야 합니다.
+
+==============================
+📌 Pattern Examples 규칙
+==============================
+- Needs Improvement 다음으로 심각한 1개의 패턴을 선택하여 생성
+- 이유와 조언은 전문가 excerpt와 대화의 맥락과 상황을 파악하여 구체적으로 작성
+- succinct한 problem_explanation & suggested_response 작성하고, 1~2줄 정도로 구체적으로 작성
+- tone은 따뜻하고 전문적이지만, ~~합니다.와 같이 공손하게 말할 수 있도록 한다.
+
+==============================
+📌 입력 데이터
+==============================
 [Pattern Examples 후보]
 {examples_context}
 
 [Expert References]
 {expert_references}
 
-이 모든 정보를 바탕으로 key_moments를 생성하십시오.
+위 정보를 바탕으로 pattern example을 생성하십시오.
 """
     ),
     (
         "human",
-        "위 내용을 반영하여 key_moments를 생성하세요."
+        "위 내용을 반영하여 pattern example을 생성하세요."
     ),
 ])
 
@@ -196,7 +243,7 @@ def _search_refs_for_pattern(pattern: Optional[Dict[str, Any]]) -> List[ExpertRe
 # 4. Main Key Moments Node
 # -------------------------------------------------------------------------
 
-def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
+async def _key_moments_node_async(state: Dict[str, Any]) -> Dict[str, Any]:
     utterances = state.get("utterances_ko") or state.get("utterances_labeled", [])
     patterns = state.get("patterns", [])
 
@@ -221,15 +268,6 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
     pos_expert_refs: List[ExpertReference] = _search_refs_for_pattern(target_positive)
     neg_expert_refs: List[ExpertReference] = _search_refs_for_pattern(target_improvement)
     ex_expert_refs: List[ExpertReference] = _search_refs_for_pattern(target_examples[0]) if target_examples else []
-
-    # LLM에 넘길 Expert References 구조화
-    expert_refs_payload = {
-        "positive": [r.dict() for r in pos_expert_refs],
-        "needs_improvement": [r.dict() for r in neg_expert_refs],
-        "pattern_examples": [r.dict() for r in ex_expert_refs],
-    }
-    expert_refs_json = json.dumps(expert_refs_payload, ensure_ascii=False)
-
 
     # ---------------------------------------------------------
     # LLM 인풋 컨텍스트 구성
@@ -266,32 +304,84 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
     ], ensure_ascii=False)
 
     # ---------------------------------------------------------
-    # LLM 호출 (Structured Output)
+    # 병렬 LLM 호출 (각 moment 타입별로 분리)
     # ---------------------------------------------------------
+    
+    async def _generate_positive_moment() -> List[PositiveMoment]:
+        """Positive Moment 생성"""
+        if not target_positive:
+            return []
+        
+        try:
+            llm = get_structured_llm(PositiveMomentResponse)
+            pos_refs_json = json.dumps([r.dict() for r in pos_expert_refs], ensure_ascii=False)
+            
+            result = await (_POSITIVE_MOMENT_PROMPT | llm).ainvoke({
+                "positive_context": pos_ctx,
+                "expert_references": pos_refs_json
+            })
+            return result.positive
+        except Exception as e:
+            print(f"Positive moment LLM 호출 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    async def _generate_needs_improvement_moment() -> List[NeedsImprovementMoment]:
+        """Needs Improvement Moment 생성"""
+        if not target_improvement:
+            return []
+        
+        try:
+            llm = get_structured_llm(NeedsImprovementMomentResponse)
+            neg_refs_json = json.dumps([r.dict() for r in neg_expert_refs], ensure_ascii=False)
+            
+            result = await (_NEEDS_IMPROVEMENT_MOMENT_PROMPT | llm).ainvoke({
+                "improvement_context": imp_ctx,
+                "expert_references": neg_refs_json
+            })
+            return result.needs_improvement
+        except Exception as e:
+            print(f"Needs improvement moment LLM 호출 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    async def _generate_pattern_example() -> List[PatternExample]:
+        """Pattern Example 생성"""
+        if not target_examples:
+            return []
+        
+        try:
+            llm = get_structured_llm(PatternExampleResponse)
+            ex_refs_json = json.dumps([r.dict() for r in ex_expert_refs], ensure_ascii=False)
+            
+            result = await (_PATTERN_EXAMPLE_PROMPT | llm).ainvoke({
+                "examples_context": ex_ctx,
+                "expert_references": ex_refs_json
+            })
+            return result.pattern_examples
+        except Exception as e:
+            print(f"Pattern example LLM 호출 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    # 병렬 실행
     try:
-        llm = get_structured_llm(KeyMomentsResponse)
-
-        result = (_GENERATE_ADVICE_PROMPT | llm).invoke({
-            "positive_context": pos_ctx,
-            "improvement_context": imp_ctx,
-            "examples_context": ex_ctx,
-            "expert_references": expert_refs_json
-        })
-
-        final_data = result.key_moments
-    except ValidationError as ve:
-        print(f"Key moments Pydantic 검증 오류: {ve}")
-        print(f"검증 실패 필드: {ve.errors()}")
-        import traceback
-        traceback.print_exc()
-        # 기본값 반환
+        positive_list, needs_improvement_list, pattern_examples_list = await asyncio.gather(
+            _generate_positive_moment(),
+            _generate_needs_improvement_moment(),
+            _generate_pattern_example()
+        )
+        
         final_data = KeyMomentsResult(
-            positive=[],
-            needs_improvement=[],
-            pattern_examples=[]
+            positive=positive_list,
+            needs_improvement=needs_improvement_list,
+            pattern_examples=pattern_examples_list
         )
     except Exception as e:
-        print(f"Key moments LLM 호출 오류: {e}")
+        print(f"Key moments 병렬 LLM 호출 오류: {e}")
         import traceback
         traceback.print_exc()
         # 기본값 반환
@@ -376,3 +466,18 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         pe.occurred_at = "0분 0초"
 
     return {"key_moments": final_data.dict()}
+
+
+def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """동기 래퍼 함수 - async 함수를 실행"""
+    try:
+        # 이미 실행 중인 이벤트 루프가 있는 경우
+        loop = asyncio.get_running_loop()
+        # 실행 중인 루프가 있으면 새 스레드에서 실행
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(asyncio.run, _key_moments_node_async(state))
+            return future.result()
+    except RuntimeError:
+        # 이벤트 루프가 없는 경우
+        return asyncio.run(_key_moments_node_async(state))
