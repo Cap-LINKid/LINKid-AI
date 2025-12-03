@@ -52,7 +52,7 @@ class NodeStatus(str, Enum):
     SKIPPED = "skipped"
 
 
-def create_execution(initial_state: Dict[str, Any]) -> str:
+def create_execution(initial_state: Dict[str, Any], meta: Optional[Dict[str, Any]] = None) -> str:
     """새 실행 생성 및 ID 반환"""
     execution_id = str(uuid.uuid4())
     storage = get_storage_instance()
@@ -80,7 +80,8 @@ def create_execution(initial_state: Dict[str, Any]) -> str:
         },
         "current_node": None,
         "error": None,
-        "result": None
+        "result": None,
+        "meta": meta or {}  # meta를 status에 저장
     }
     
     storage.create_execution(execution_id, execution_data)

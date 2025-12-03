@@ -18,3 +18,9 @@ CHECK (advice_type IN (
 ));
 
 
+
+
+
+
+
+
