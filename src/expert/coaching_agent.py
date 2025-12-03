@@ -54,9 +54,9 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "- VectorDB에서 가져온 전문가 레퍼런스와 조언 (expert_advice_section)\n\n"
             "Return ONLY a JSON object with the following structure:\n"
             "{{\n"
-            '  \"summary\": \"요약 텍스트 (2-4문장)\",\n'
+            '  \"summary\": \"요약 텍스트 (2-4문장. JSON에서 줄바꿈은 \'\\n\' 으로 표현합니다. 적절한 위치에 \'\\n\' 을 넣어주세요.",\n'
             '  \"challenge\": {{\n'
-            '    \"title\": \"챌린지 제목 (가장 중요한 부정적 패턴 + 맥락을 드러내는 짧은 문구)\",\n'
+            '    \"title\": \"챌린지 제목 (상황을 묘사하는 문장이 아니라, 부모가 앞으로 실천해야 할 \'행동 중심 과제명\'. 동사로 시작하며 실천 가능한 변화 행동을 나타낼 것)\",\n'
             '    \"goal\": \"챌린지 목표 (1문장, 어떤 대화/행동을 어떻게 바꾸는지 명확히)\",\n'
             '    \"actions\": [\"액션1\", \"액션2\", \"액션3\"],\n'
             '    \"rationale\": \"챌린지 생성 이유 (필요한 경우에만, 패턴·대화·레퍼런스 근거 요약)\"\n'
@@ -73,15 +73,12 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "   - 실제 대화에서 반복된 구체 장면 (예: 용돈, 물건 뺏기, 고집 부림, 협박 발화 등)\n"
             "   - 전문가 레퍼런스에서 제시한 구체적 방법 (말문장 예시, 태도 변화, 훈육 원칙 등)\n"
             "3) summary에는 반드시 다음이 포함되어야 함:\n"
-            "   - 왜 이 챌린지를 선택했는지 (어떤 패턴과 상황이 반복되었는지)\n"
+            "   - 왜 이 챌린지를 선택했는지 (상황에 대한 묘사, 어떤 패턴이 반복되었는지)\n"
             "   - **반드시 전문가 레퍼런스 내용을 인용**:\n"
             "     - expert_advice_section에 '[needs_improvement 참고]'로 표시된 전문가 조언이 있으면, "
             "     반드시 해당 조언의 핵심 내용을 직접 인용하여 summary에 포함해야 합니다.\n"
             "     - 전문가 조언의 구체적인 문장이나 원칙을 그대로 인용하거나 요약하여 포함하세요.\n"
-            "     - 예) \"전문가 조언에 따르면, '충격 요법은 부모의 착각입니다. 따끔하게 독한 말을 하면 "
-            "     아이가 정신을 차리고 행동을 바꿀 거라 기대하지만, 이는 부모만의 착각일 수 있습니다. "
-            "     자녀에게 그런 말은 동기부여가 아니라 인격적인 공격으로 다가옵니다.' 따라서 비난 대신 "
-            "     공감과 이해를 바탕으로 한 대화 방식을 적용한 챌린지를 설계했습니다.\"\n"
+            "     - 예) \"전문가 조언에 따르면, '<전문가 조언 인용>' 따라서 <인용을 참고하여 챌린지를 생성한 이유 구체적으로 서술> 챌린지를 설계했습니다.\"\n"
             "   - 추가로 실제 대화 문장 예시 1개 이상도 포함하면 더 좋습니다.\n"
             "4) rationale은 다음 조건에서만 포함:\n"
             "   - expert_advice_section에 실제 레퍼런스가 존재할 때\n"
@@ -106,8 +103,9 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "전문가 레퍼런스 및 조언 (VectorDB 검색 결과):\n{expert_advice_section}\n\n"
             "위 정보를 바탕으로 코칭 계획을 JSON 형식으로 작성해주세요.\n"
             "- 챌린지는 반드시 위 **부정적 패턴**과 **구체적인 대화 장면**에 직접 대응해야 합니다.\n"
-            "- actions와 goal은 전문가 조언을 실제 부모-자녀 대화에 적용하는 형태로, "
-            "구체적인 말문장/행동 수준까지 내려가서 작성해주세요.\n"
+            "- actions와 goal은 전문가 조언을 기존 대화의 맥락을 고려해서 실제 부모-자녀 대화에 적용하는 형태로, "
+            "구체적인 말문장/행동 수준까지 내려가서 작성해주세요. (특정 발화를 예시로 들때에는 '<발화>처럼 말해주세요.' 와 같이 작성)\n"
+            "- speaker MOM 은 엄마이고, speaker CHI 는 아이입니다.\n "
             "- **중요**: expert_advice_section에 '[needs_improvement 참고]'로 표시된 전문가 조언이 있으면, "
             "summary에 반드시 해당 조언의 핵심 내용을 직접 인용하거나 요약하여 포함해야 합니다. "
             "전문가 조언의 구체적인 문장, 원칙, 설명을 그대로 인용하거나 요약하여 summary에 반영하세요. "
@@ -599,7 +597,7 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
                         if reference_texts:
                             # [참고] 뒤에 최대 2개까지 붙이기
-                            references_section = " [참고] " + "; ".join(reference_texts)
+                            references_section = "\n [참고] \n" + "\n ".join(reference_texts)
                             existing_rationale = coaching_data["challenge"].get("rationale", "") or ""
 
                             if existing_rationale.strip():
