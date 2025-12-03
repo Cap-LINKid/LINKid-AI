@@ -212,7 +212,7 @@
   {
     "Category": "학습/습관",
     "Age": "초등",
-    "Related_DPICS": "10 Negative (과도한 명령/지시); 1 Positive (구체적 칭찬)",
+    "Related_DPICS": "10 Negative (과도한 명령/지시); 14 Negative (심리적 통제)",
     "Keyword": "완벽, 타당성, 견디는힘, 1분만",
     "Situation": "아이가 공부나 숙제를 하기 싫어해서 부모가 강요하며 갈등이 생길 때",
     "Type": "Negative",
@@ -580,5 +580,3 @@
     "Reference": "어떻게 말해줘야 할까 - 오은영 저서"
   }
 ]
-
-
