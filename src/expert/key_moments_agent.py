@@ -93,6 +93,7 @@ Positive Moment 분석을 생성해야 합니다.
 - reference_descriptions는 최대 2개
 - reason: 전문가 excerpt와 대화의 맥락과 상황을 파악하여 2~4 줄 정도로 길고 구체적으로 작성
 - tone은 따뜻하고 전문적이지만, ~~합니다.와 같이 공손하게 말할 수 있도록 한다.
+- positive한 순간이 없다면 빈배열 반환
 
 ==============================
 📌 입력 데이터
@@ -244,7 +245,7 @@ def _search_refs_for_pattern(pattern: Optional[Dict[str, Any]]) -> List[ExpertRe
 # -------------------------------------------------------------------------
 
 async def _key_moments_node_async(state: Dict[str, Any]) -> Dict[str, Any]:
-    utterances = state.get("utterances_ko") or state.get("utterances_labeled", [])
+    utterances = state.get("utterances_labeled") or state.get("utterances_ko", [])
     patterns = state.get("patterns", [])
 
     if not patterns:
