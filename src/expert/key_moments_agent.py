@@ -5,7 +5,7 @@ import os
 from typing import Dict, Any, List, Optional
 
 from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from src.utils.common import get_structured_llm
 from src.utils.vector_store import search_expert_advice
@@ -40,9 +40,9 @@ class NeedsImprovementMoment(BaseModel):
     dialogue: List[DialogueLine]
     reason: str
     better_response: str
-    reference_descriptions: List[str]
+    reference_descriptions: List[str] = Field(default_factory=list)
     pattern_hint: str
-    expert_references: List[ExpertReference]
+    expert_references: List[ExpertReference] = Field(default_factory=list)
 
 
 class PatternExample(BaseModel):
@@ -55,9 +55,9 @@ class PatternExample(BaseModel):
 
 
 class KeyMomentsResult(BaseModel):
-    positive: List[PositiveMoment]
-    needs_improvement: List[NeedsImprovementMoment]
-    pattern_examples: List[PatternExample]
+    positive: List[PositiveMoment] = Field(default_factory=list)
+    needs_improvement: List[NeedsImprovementMoment] = Field(default_factory=list)
+    pattern_examples: List[PatternExample] = Field(default_factory=list)
 
 
 class KeyMomentsResponse(BaseModel):
@@ -80,14 +80,13 @@ Key Moments 분석을 생성해야 합니다.
 📌 절대 지켜야 할 규칙
 ==============================
 
-1) JSON 구조 절대 변경 금지
-2) Positive: 반드시 전문가 excerpt 1개 포함
-3) Needs Improvement: 전문가 excerpt 1~2개 포함
-4) reference_descriptions: 최대 2개
-5) Pattern Examples: 반드시 "1개만"
-6) reason: 전문가 excerpt와 대화의 맥락과 상황을 파악하여 2~4 줄 정도로 길고 구체적으로 나올 수 있도록.
-7) better_response: 부모가 실제 사용할 수 있는 대사 형태와 이런 대안이 나온 이유를 뽑힌 전문가 excerpt를 반영해서 구체적으로 작성하세요.
-8) tone은 따뜻하고 전문적이지만, ~~합니다.와 같이 공손하게 말할 수 있도록한다.
+1) Positive: 반드시 전문가 excerpt 1개 포함
+2) Needs Improvement: 전문가 excerpt 1~2개 포함
+3) reference_descriptions: 최대 2개
+4) Pattern Examples: 반드시 "1개만"
+5) reason: 전문가 excerpt와 대화의 맥락과 상황을 파악하여 2~4 줄 정도로 길고 구체적으로 나올 수 있도록.
+6) better_response: 부모가 실제 사용할 수 있는 대사 형태와 이런 대안이 나온 이유를 뽑힌 전문가 excerpt를 반영해서 구체적으로 작성하세요.
+7) tone은 따뜻하고 전문적이지만, ~~합니다.와 같이 공손하게 말할 수 있도록한다.
 
 ==============================
 📌 Positive Moment 규칙
@@ -102,11 +101,14 @@ Key Moments 분석을 생성해야 합니다.
 - 가장 심각한 부정 패턴 하나만 사용
 - reason: 상황 요약 → 문제점 → 아동 발달 영향 → 전문가 조언 인용(1~2개)
 - better_response: 실제 사용할 수 있는 구체 대사
+- expert_references: 빈 배열 []로 설정 (후처리에서 자동으로 채워짐)
+- reference_descriptions: 최대 2개
 
 ==============================
 📌 Pattern Examples 규칙
 ==============================
-- Needs Improvement 다음으로 심각한 1개의 패턴만 선택
+- Needs Improvement 다음으로 심각한 1개의 패턴을 선택하여 생성
+- 가능하면 생성하되, 생성하지 못해도 후처리에서 자동으로 채워짐
 - 이유와 조언은 전문가 excerpt와 대화의 맥락과 상황을 파악하여 구체적으로 작성할 수 있도록 한다.
 - succinct한 problem_explanation & suggested_response 작성하고, 1~2줄 정도로 구체적으로 나올 수 있도록 작성한다.
 
@@ -125,12 +127,12 @@ Key Moments 분석을 생성해야 합니다.
 [Expert References]
 {expert_references}
 
-이 모든 정보를 바탕으로 JSON Schema에 맞는 key_moments를 생성하십시오.
+이 모든 정보를 바탕으로 key_moments를 생성하십시오.
 """
     ),
     (
         "human",
-        "위 내용을 반영하여 key_moments JSON을 생성하세요."
+        "위 내용을 반영하여 key_moments를 생성하세요."
     ),
 ])
 
@@ -266,45 +268,111 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # ---------------------------------------------------------
     # LLM 호출 (Structured Output)
     # ---------------------------------------------------------
-    llm = get_structured_llm(KeyMomentsResponse)
+    try:
+        llm = get_structured_llm(KeyMomentsResponse)
 
-    result = (_GENERATE_ADVICE_PROMPT | llm).invoke({
-        "positive_context": pos_ctx,
-        "improvement_context": imp_ctx,
-        "examples_context": ex_ctx,
-        "expert_references": expert_refs_json
-    })
+        result = (_GENERATE_ADVICE_PROMPT | llm).invoke({
+            "positive_context": pos_ctx,
+            "improvement_context": imp_ctx,
+            "examples_context": ex_ctx,
+            "expert_references": expert_refs_json
+        })
 
-    final_data = result.key_moments
+        final_data = result.key_moments
+    except ValidationError as ve:
+        print(f"Key moments Pydantic 검증 오류: {ve}")
+        print(f"검증 실패 필드: {ve.errors()}")
+        import traceback
+        traceback.print_exc()
+        # 기본값 반환
+        final_data = KeyMomentsResult(
+            positive=[],
+            needs_improvement=[],
+            pattern_examples=[]
+        )
+    except Exception as e:
+        print(f"Key moments LLM 호출 오류: {e}")
+        import traceback
+        traceback.print_exc()
+        # 기본값 반환
+        final_data = KeyMomentsResult(
+            positive=[],
+            needs_improvement=[],
+            pattern_examples=[]
+        )
 
     # ---------------------------------------------------------
     # 후처리: 필드 정제/보정
     # ---------------------------------------------------------
 
     # Positive 보정
-    if target_positive and final_data.positive:
+    if target_positive and final_data.positive and len(final_data.positive) > 0:
         pm = final_data.positive[0]
-        pm.dialogue = _extract_dialogue(utterances, target_positive["utterance_indices"])
+        dialogue_dicts = _extract_dialogue(utterances, target_positive["utterance_indices"])
+        pm.dialogue = [
+            DialogueLine(speaker=d["speaker"], text=d["text"])
+            for d in dialogue_dicts
+        ]
         pm.pattern_hint = target_positive["pattern_name"]
         # Positive는 긍정 패턴에 대한 RAG 결과를 기반으로 reference_descriptions 구성
         pm.reference_descriptions = _ref_desc_from_refs(pos_expert_refs)
 
     # Needs Improvement 보정
-    if target_improvement and final_data.needs_improvement:
+    if target_improvement and final_data.needs_improvement and len(final_data.needs_improvement) > 0:
         ni = final_data.needs_improvement[0]
-        ni.dialogue = _extract_dialogue(utterances, target_improvement["utterance_indices"])
+        dialogue_dicts = _extract_dialogue(utterances, target_improvement["utterance_indices"])
+        ni.dialogue = [
+            DialogueLine(speaker=d["speaker"], text=d["text"])
+            for d in dialogue_dicts
+        ]
         ni.pattern_hint = target_improvement["pattern_name"]
         ni.expert_references = neg_expert_refs
         ni.reference_descriptions = _ref_desc_from_refs(neg_expert_refs)
 
     # Pattern Examples 보정 (두 번째로 심각한 패턴 1개)
-    for i, ex_target in enumerate(target_examples):
-        if i < len(final_data.pattern_examples):
-            pe = final_data.pattern_examples[i]
-            pe.pattern_name = ex_target["pattern_name"]
-            pe.dialogue = _extract_dialogue(utterances, ex_target["utterance_indices"])
-            pe.occurrences = len(ex_target["utterance_indices"])
-            idx = ex_target["utterance_indices"][0]
-            pe.occurred_at = f"{idx // 6}분 {idx * 10 % 60}초"
+    # LLM이 생성하지 못한 경우 후처리에서 생성
+    if target_examples and len(target_examples) > 0:
+        if len(final_data.pattern_examples) == 0:
+            # LLM이 생성하지 못한 경우 직접 생성
+            ex_target = target_examples[0]
+            utterance_indices = ex_target.get("utterance_indices", [])
+            dialogue_lines = [
+                DialogueLine(
+                    speaker="parent" if utt.get("speaker") in ["Parent", "Mom", "Dad", "부모", "A"] else "child",
+                    text=utt.get("original_ko") or utt.get("korean") or utt.get("text", "")
+                )
+                for idx in sorted(utterance_indices)
+                if 0 <= idx < len(utterances)
+                for utt in [utterances[idx]]
+            ]
+            
+            pe = PatternExample(
+                pattern_name=ex_target.get("pattern_name", ""),
+                occurrences=len(utterance_indices),
+                occurred_at=f"{utterance_indices[0] // 6}분 {utterance_indices[0] * 10 % 60}초" if utterance_indices else "0분 0초",
+                dialogue=dialogue_lines,
+                problem_explanation=ex_target.get("description", "패턴이 발견되었습니다."),
+                suggested_response="상황에 맞는 대안적 대응이 필요합니다."
+            )
+            final_data.pattern_examples.append(pe)
+        else:
+            # LLM이 생성한 경우 보정
+            for i, ex_target in enumerate(target_examples):
+                if i < len(final_data.pattern_examples):
+                    pe = final_data.pattern_examples[i]
+                    pe.pattern_name = ex_target["pattern_name"]
+                    utterance_indices = ex_target.get("utterance_indices", [])
+                    # Dict를 DialogueLine 리스트로 변환
+                    dialogue_dicts = _extract_dialogue(utterances, utterance_indices)
+                    pe.dialogue = [
+                        DialogueLine(speaker=d["speaker"], text=d["text"])
+                        for d in dialogue_dicts
+                    ]
+                    pe.occurrences = len(utterance_indices)
+                    if utterance_indices:
+                        idx = utterance_indices[0]
+                        pe.occurred_at = f"{idx // 6}분 {idx * 10 % 60}초"
+                    else:
+                        pe.occurred_at = "0분 0초"
 
     return {"key_moments": final_data.dict()}
