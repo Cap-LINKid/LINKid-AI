@@ -68,11 +68,18 @@ class ChallengeSpec(BaseModel):
     actions: List[ActionItem] = Field(..., description="액션 리스트")
 
 
+class MetaInfo(BaseModel):
+    """메타데이터 정보"""
+    child_name: Optional[str] = Field(None, description="자녀 이름")
+    child_age: Optional[int] = Field(None, description="자녀 나이")
+    situation: Optional[str] = Field(None, description="상황 (예: '놀이상황', '학습상황', '기타')")
+
+
 class DialogueRequest(BaseModel):
     utterances_ko: List[UtteranceItem] = Field(..., description="한국어 대화 발화 리스트")
     challenge_spec: Optional[Dict[str, Any]] = None  # 하위 호환성: 단일 챌린지
     challenge_specs: Optional[List[ChallengeSpec]] = None  # 여러 챌린지 (새로운 형식)
-    meta: Optional[Dict[str, Any]] = None
+    meta: Optional[MetaInfo] = Field(None, description="메타데이터 (자녀 정보, 상황 등)")
 
 
 class ExecutionResponse(BaseModel):
@@ -210,14 +217,22 @@ async def analyze_dialogue(request: DialogueRequest, background_tasks: Backgroun
             # 이미 딕셔너리인 경우 (하위 호환성)
             challenge_specs_dict.append(spec)
     
+    # Meta 정보 처리
+    meta_dict = {}
+    if request.meta:
+        if isinstance(request.meta, MetaInfo):
+            meta_dict = request.meta.model_dump(exclude_none=True)
+        else:
+            meta_dict = request.meta
+    
     state = {
         "utterances_ko": utterances_ko_dict,
         "challenge_specs": challenge_specs_dict,
         "challenge_spec": request.challenge_spec or {},  # 하위 호환성 유지
-        "meta": request.meta or {}
+        "meta": meta_dict
     }
     
-    execution_id = create_execution(state)
+    execution_id = create_execution(state, meta=meta_dict)
     update_execution_status(execution_id, ExecutionStatus.RUNNING)
     
     # 백그라운드에서 실행
