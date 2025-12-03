@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from typing import Dict, Any, List, Literal, Optional, Set
 
 from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
 
-from src.utils.common import get_llm
+from src.utils.common import get_llm, get_structured_llm
 
 
 def _load_pattern_definitions() -> Dict[str, Any]:
@@ -28,6 +28,37 @@ def _load_pattern_definitions() -> Dict[str, Any]:
 
 
 _PATTERN_DEFINITIONS = _load_pattern_definitions()
+
+
+# -----------------------
+#  Pydantic 모델 정의
+# -----------------------
+
+class PatternDetection(BaseModel):
+    """패턴 탐지 결과"""
+    pattern_name: str = Field(description="패턴 이름 (한글)")
+    description: str = Field(description="판단 근거 (상황과 맥락을 포함하여 구체적으로 기술)")
+    utterance_indices: List[int] = Field(description="관련된 발화 번호들")
+    severity: Literal["low", "medium", "high"] = Field(description="심각도")
+    pattern_type: Literal["positive", "negative"] = Field(description="패턴 타입")
+
+
+class PatternDetectionList(BaseModel):
+    """패턴 탐지 결과 리스트"""
+    patterns: List[PatternDetection] = Field(default_factory=list, description="탐지된 패턴 목록")
+
+
+class PatternValidation(BaseModel):
+    """패턴 검증 결과"""
+    pattern_index: int = Field(description="원본 배열 인덱스")
+    is_valid: bool = Field(description="유효성 여부")
+    reason: str = Field(description="판단 근거")
+    corrected_pattern_name: Optional[str] = Field(default=None, description="수정이 필요하면 새 패턴 이름 (없으면 null)")
+
+
+class PatternValidationList(BaseModel):
+    """패턴 검증 결과 리스트"""
+    validations: List[PatternValidation] = Field(default_factory=list, description="검증 결과 목록")
 
 
 def _build_pattern_details_for_prompt(mode: Optional[Literal["positive", "negative"]] = None) -> str:
@@ -137,17 +168,7 @@ def _get_pattern_prompt(mode: Literal["positive", "negative"]) -> ChatPromptTemp
         "*** 사용할 패턴 정의 ***\n"
         f"{pattern_details}\n"
         "\n"
-        "*** 출력 형식 (JSON 배열) ***\n"
-        "[\n"
-        "  {{\n"
-        "    \"pattern_name\": \"패턴 이름 (한글)\",\n"
-        "    \"description\": \"판단 근거 (상황과 맥락을 포함하여 구체적으로 기술)\",\n"
-        "    \"utterance_indices\": [관련된 발화 번호들 (예: [3, 4])],\n"
-        "    \"severity\": \"low\" | \"medium\" | \"high\",\n"
-        "    \"pattern_type\": \"positive\" | \"negative\"\n"
-        "  }}\n"
-        "]\n"
-        "해당되는 패턴이 없으면 빈 배열 []을 출력하십시오."
+        "해당되는 패턴이 없으면 빈 리스트를 반환하십시오."
     )
 
     return ChatPromptTemplate.from_messages([
@@ -179,12 +200,6 @@ _PATTERN_VALIDATION_PROMPT = ChatPromptTemplate.from_messages([
             "4. **일반 원칙**:\n"
             "   - 화자 라벨이 틀렸더라도 발화 내용상 패턴이 맞다면 인정하세요.\n"
             "   - 패턴의 정의와 가장 '의미상으로 가까운' 것이어야 합니다.\n"
-            "\n"
-            "각 패턴에 대해 다음 정보를 JSON 형태로 출력하세요:\n"
-            "  - pattern_index: 원본 배열 인덱스\n"
-            "  - is_valid: true/false\n"
-            "  - reason: 판단 근거\n"
-            "  - corrected_pattern_name: 수정이 필요하면 새 패턴 이름 (없으면 null)\n"
         ),
     ),
     (
@@ -192,7 +207,7 @@ _PATTERN_VALIDATION_PROMPT = ChatPromptTemplate.from_messages([
         (
             "탐지된 패턴 목록:\n{patterns}\n\n"
             "관련 발화:\n{utterances}\n\n"
-            "검증 결과를 JSON 배열로 출력하세요."
+            "각 패턴에 대해 검증 결과를 제공하세요."
         ),
     ),
 ])
@@ -251,7 +266,7 @@ def _validate_patterns_with_llm(
         return patterns
 
     try:
-        llm = get_llm(mini=True)
+        structured_llm = get_structured_llm(PatternValidationList, mini=True)
 
         # 패턴 정보 포맷팅
         patterns_str = "\n".join([
@@ -277,19 +292,15 @@ def _validate_patterns_with_llm(
         utterances_str = "\n".join(relevant_utterances) if relevant_utterances else "발화 없음"
 
         # LLM 검증
-        res = (_PATTERN_VALIDATION_PROMPT | llm).invoke({
+        res = (_PATTERN_VALIDATION_PROMPT | structured_llm).invoke({
             "patterns": patterns_str,
             "utterances": utterances_str
         })
-        content = getattr(res, "content", "") or str(res)
 
-        # JSON 배열 파싱
-        json_match = re.search(r'\[[\s\S]*\]', content)
-        if not json_match:
-            return patterns
-
-        validations = json.loads(json_match.group(0))
-        if not isinstance(validations, List):
+        # Pydantic 모델에서 데이터 추출
+        if isinstance(res, PatternValidationList):
+            validations = [v.dict() for v in res.validations]
+        else:
             return patterns
 
         # 검증 결과 적용
@@ -409,7 +420,7 @@ def _run_pattern_llm_on_episode(
         return []
 
     try:
-        llm = get_llm(mini=False)
+        structured_llm = get_structured_llm(PatternDetectionList, mini=False)
         prompt = _get_pattern_prompt(mode)
 
         lines: List[str] = []
@@ -423,16 +434,12 @@ def _run_pattern_llm_on_episode(
 
         utterances_str = "\n".join(lines)
 
-        res = (prompt | llm).invoke({"utterances_labeled": utterances_str})
-        content = getattr(res, "content", "") or str(res)
+        res = (prompt | structured_llm).invoke({"utterances_labeled": utterances_str})
 
-        json_match = re.search(r'\[[\s\S]*\]', content)
-        if not json_match:
-            # print(f"LLM pattern detection ({mode}): No JSON array found")
-            return []
-
-        llm_patterns = json.loads(json_match.group(0))
-        if not isinstance(llm_patterns, list):
+        # Pydantic 모델에서 데이터 추출
+        if isinstance(res, PatternDetectionList):
+            llm_patterns = [p.dict() for p in res.patterns]
+        else:
             return []
 
         # 기본 속성 보정
