@@ -84,9 +84,10 @@ Key Moments 분석을 생성해야 합니다.
 2) Needs Improvement: 전문가 excerpt 1~2개 포함
 3) reference_descriptions: 최대 2개
 4) Pattern Examples: 반드시 "1개만"
-5) reason: 전문가 excerpt와 대화의 맥락과 상황을 파악하여 2~4 줄 정도로 길고 구체적으로 나올 수 있도록.
-6) better_response: 부모가 실제 사용할 수 있는 대사 형태와 이런 대안이 나온 이유를 뽑힌 전문가 excerpt를 반영해서 구체적으로 작성하세요.
+5) reason: 전문가 excerpt와 대화의 맥락을 파악하여 2~3줄로 간결하게 작성 (최대 200자)
+6) better_response: 부모가 실제 사용할 수 있는 대사 형태로 간결하게 작성 (최대 100자)
 7) tone은 따뜻하고 전문적이지만, ~~합니다.와 같이 공손하게 말할 수 있도록한다.
+8) **중요: 모든 텍스트는 간결하고 핵심만 담아야 합니다. 불필요한 반복이나 장황한 설명은 피하세요.**
 
 ==============================
 📌 Positive Moment 규칙
@@ -99,8 +100,8 @@ Key Moments 분석을 생성해야 합니다.
 📌 Needs Improvement 규칙
 ==============================
 - 가장 심각한 부정 패턴 하나만 사용
-- reason: 상황 요약 → 문제점 → 아동 발달 영향 → 전문가 조언 인용(1~2개)
-- better_response: 실제 사용할 수 있는 구체 대사
+- reason: 상황 요약 → 문제점 → 아동 발달 영향 → 전문가 조언 인용(1~2개) - 최대 200자로 간결하게
+- better_response: 실제 사용할 수 있는 구체 대사 - 최대 100자로 간결하게
 - expert_references: 빈 배열 []로 설정 (후처리에서 자동으로 채워짐)
 - reference_descriptions: 최대 2개
 
@@ -109,8 +110,9 @@ Key Moments 분석을 생성해야 합니다.
 ==============================
 - Needs Improvement 다음으로 심각한 1개의 패턴을 선택하여 생성
 - 가능하면 생성하되, 생성하지 못해도 후처리에서 자동으로 채워짐
-- 이유와 조언은 전문가 excerpt와 대화의 맥락과 상황을 파악하여 구체적으로 작성할 수 있도록 한다.
-- succinct한 problem_explanation & suggested_response 작성하고, 1~2줄 정도로 구체적으로 나올 수 있도록 작성한다.
+- problem_explanation: 최대 150자로 간결하게 (1~2줄)
+- suggested_response: 최대 100자로 간결하게 (1~2줄)
+- 핵심만 담아 불필요한 설명은 제외
 
 ==============================
 📌 입력 데이터
@@ -124,10 +126,13 @@ Key Moments 분석을 생성해야 합니다.
 [Pattern Examples 후보]
 {examples_context}
 
-[Expert References]
+[Expert References - 참고용 (제목과 저자만)]
 {expert_references}
 
+*** 참고: Expert References의 전체 내용은 후처리에서 자동으로 채워지므로, 여기서는 제목과 저자 정보만 참고하세요. ***
+
 이 모든 정보를 바탕으로 key_moments를 생성하십시오.
+**중요: 모든 텍스트는 간결하게 작성하고, 토큰 사용을 최소화하세요.**
 """
     ),
     (
@@ -141,13 +146,17 @@ Key Moments 분석을 생성해야 합니다.
 # 3. Helper 함수
 # -------------------------------------------------------------------------
 
-def _extract_dialogue(utterances: List[Dict], indices: List[int]) -> List[Dict]:
+def _extract_dialogue(utterances: List[Dict], indices: List[int], max_items: int = 10) -> List[Dict]:
+    """발화 추출 (최대 개수 제한)"""
     dialogue = []
-    for idx in sorted(indices):
+    for idx in sorted(indices)[:max_items]:  # 최대 10개로 제한
         if 0 <= idx < len(utterances):
             utt = utterances[idx]
             speaker = "parent" if utt.get("speaker") in ["Parent", "Mom", "Dad", "부모", "A"] else "child"
             text = utt.get("original_ko") or utt.get("korean") or utt.get("text", "")
+            # 발화 텍스트가 너무 길면 200자로 제한
+            if len(text) > 200:
+                text = text[:200] + "..."
             dialogue.append({"speaker": speaker, "text": text})
     return dialogue
 
@@ -180,7 +189,7 @@ def _search_refs_for_pattern(pattern: Optional[Dict[str, Any]]) -> List[ExpertRe
     refs: List[ExpertReference] = []
     for r in raw[:2]:  # 안전하게 2개까지만 가져오기
         content = r.get("content", "") or ""
-        excerpt = content[:200]
+        excerpt = content[:150]  # 200자에서 150자로 축소
         refs.append(
             ExpertReference(
                 title=r.get("title", ""),
@@ -222,11 +231,12 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
     neg_expert_refs: List[ExpertReference] = _search_refs_for_pattern(target_improvement)
     ex_expert_refs: List[ExpertReference] = _search_refs_for_pattern(target_examples[0]) if target_examples else []
 
-    # LLM에 넘길 Expert References 구조화
+    # LLM에 넘길 Expert References 구조화 (간소화: 제목과 저자만)
+    # 전체 내용은 후처리에서 채우므로 여기서는 최소한만 전달
     expert_refs_payload = {
-        "positive": [r.dict() for r in pos_expert_refs],
-        "needs_improvement": [r.dict() for r in neg_expert_refs],
-        "pattern_examples": [r.dict() for r in ex_expert_refs],
+        "positive": [{"title": r.title, "author": r.author} for r in pos_expert_refs[:1]],
+        "needs_improvement": [{"title": r.title, "author": r.author} for r in neg_expert_refs[:2]],
+        "pattern_examples": [{"title": r.title, "author": r.author} for r in ex_expert_refs[:1]],
     }
     expert_refs_json = json.dumps(expert_refs_payload, ensure_ascii=False)
 
