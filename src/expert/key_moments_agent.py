@@ -264,11 +264,19 @@ async def _key_moments_node_async(state: Dict[str, Any]) -> Dict[str, Any]:
     target_examples = neg_patterns[1:2]  # 딱 1개만
 
     # ---------------------------------------------------------
-    # RAG: 전문가 조언 검색 (긍정 / 최악 / 두 번째 패턴 각각)
+    # RAG: 전문가 조언 검색 (긍정 / 최악 / 두 번째 패턴 각각) - 병렬 실행
     # ---------------------------------------------------------
-    pos_expert_refs: List[ExpertReference] = _search_refs_for_pattern(target_positive)
-    neg_expert_refs: List[ExpertReference] = _search_refs_for_pattern(target_improvement)
-    ex_expert_refs: List[ExpertReference] = _search_refs_for_pattern(target_examples[0]) if target_examples else []
+    # 블로킹 호출을 별도 스레드에서 실행하여 이벤트 루프를 블로킹하지 않도록 함
+    search_tasks = [
+        asyncio.to_thread(_search_refs_for_pattern, target_positive),
+        asyncio.to_thread(_search_refs_for_pattern, target_improvement),
+    ]
+    if target_examples:
+        search_tasks.append(asyncio.to_thread(_search_refs_for_pattern, target_examples[0]))
+    else:
+        search_tasks.append(asyncio.to_thread(lambda: []))
+    
+    pos_expert_refs, neg_expert_refs, ex_expert_refs = await asyncio.gather(*search_tasks)
 
     # ---------------------------------------------------------
     # LLM 인풋 컨텍스트 구성
