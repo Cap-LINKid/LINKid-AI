@@ -51,13 +51,15 @@ _SUMMARY_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
         "system",
         (
             "You are an expert analyzing parent-child interactions. "
-            "Using ONLY the dialogue content provided, generate a brief summary (in Korean) describing what actually happened in this interaction moment.\n"
+            "Using ONLY the dialogue content provided, generate a brief summary (in Korean) describing why this interaction moment demonstrates successful action performance.\n"
+            "- **Important**: This summary is generated ONLY when the action was successfully detected. Focus on the positive aspects that made it successful.\n"
             "- The summary MUST be grounded in the 'Dialogue context' utterances, not in the action description text.\n"
             "- If you quote what the parent said, you MUST copy the exact Korean utterance from the dialogue context (e.g., 부모: ...), without changing or inventing new wording.\n"
-            "- **Describe accurately**: If the parent's utterance shows the positive action (e.g., accepting feelings, validating emotions, speaking supportively), describe it positively.\n"
-            "- **Only mention negatives if clearly present**: If the dialogue shows clear criticism, scolding, or emotion dismissing, mention it. But if the utterance is neutral or positive, describe it as such.\n"
-            "- **Mixed utterances**: If the parent's utterance is mixed (부분적으로 수용, 부분적으로 비판), reflect this nuance honestly (e.g., 감정을 일부 이해하려 했으나, 동시에 지적하거나 통제하는 표현도 사용했습니다).\n"
+            "- **Focus on success**: Describe what the parent did well (e.g., accepting feelings, validating emotions, speaking supportively) and why it was effective.\n"
+            "- **Do NOT mention negative aspects**: Even if the dialogue contains some negative elements, do NOT mention them in the summary. Focus only on the positive action that was successfully performed.\n"
+            "- **Explain the positive impact**: Describe what positive effect the parent's words/actions had (e.g., how it helped the child feel understood, validated, or supported).\n"
             "- Prefer to include at least one short direct quote from the parent's utterance in quotation marks, taken verbatim from the dialogue context.\n"
+            "- Structure: (1) What the parent said/did (with direct quote), (2) Why it was effective or what positive impact it had.\n"
             "The Korean summary MUST be written in polite formal speech (존댓말, e.g., '~합니다', '~합니다.'). "
             "Return ONLY the summary text, no extra explanation."
         ),
@@ -68,7 +70,9 @@ _SUMMARY_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
             "Action performed:\n{action_content}\n\n"
             "Challenge context:\n{challenge_name}\n\n"
             "Dialogue context:\n{dialogue_context}\n\n"
-            "Generate a brief summary describing this interaction moment."
+            "Generate a brief summary explaining why this interaction moment demonstrates successful action performance. "
+            "Focus on what the parent said/did that was positive and effective, and what positive impact it had. "
+            "Do NOT mention any negative aspects."
         ),
     ),
 ])
@@ -466,8 +470,22 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
                     "detected_count": evaluation.get("detected_count", 0)
                 })
         
-        # challenge_actions_dict를 리스트로 변환
-        challenge_actions = list(challenge_actions_dict.values())
+        # challenge_actions_dict에서 이 챌린지에 대해 "가장 잘 수행된" 하나의 액션만 선택
+        challenge_actions: List[Dict[str, Any]] = []
+        if challenge_actions_dict:
+            # detected_count가 가장 큰 action_id 선택 (동점이면 먼저 생성된 것 우선)
+            best_action_id = max(
+                challenge_actions_dict.items(),
+                key=lambda item: item[1].get("detected_count", 0)
+            )[0]
+            best_action = challenge_actions_dict.get(best_action_id)
+            if best_action:
+                challenge_actions = [best_action]
+                # action_evaluations에서도 동일한 action_id만 남기기
+                action_evaluations = [
+                    ae for ae in action_evaluations
+                    if int(ae.get("action_id", 0)) == int(best_action_id)
+                ]
         
         # challenge_evaluations에 challenge 단위로 추가 (actions가 있는 경우만)
         if challenge_actions:
