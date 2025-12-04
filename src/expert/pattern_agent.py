@@ -127,6 +127,11 @@ def _get_pattern_prompt(mode: Literal["positive", "negative"]) -> ChatPromptTemp
         "   - 예: '반영적 경청'은 반드시 상대방의 말이 먼저 있고, 그에 대한 반응이어야 합니다.\n"
         "   - 예: '감정 무시'는 아이가 감정을 표현한 직후에 부모가 반응하는 맥락이어야 합니다.\n"
         "\n"
+        "*** 대화 길이 제한 (중요) ***\n"
+        "- 각 패턴마다 \"utterance_indices\"에는 **해당 패턴을 가장 잘 보여주는 핵심 발화만 최대 3~4개까지만** 포함하십시오.\n"
+        "- 관련된 대화가 훨씬 길더라도, 문제가 되는 순간 전후의 **연속된 3~4개 발화**를 선택하여 인덱스로 반환하십시오.\n"
+        "- 같은 패턴이라도 전체 에피소드를 모두 포함하지 말고, **핵심 장면이 되는 짧은 클립만** 선택하십시오.\n"
+        "\n"
         f"{mode_instruction}\n"
         "\n"
         "*** 사용할 패턴 정의 ***\n"
@@ -450,41 +455,29 @@ def _run_pattern_llm_on_episode(
 def detect_patterns_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     LLM 기반 패턴 탐지 노드
-    1. Sliding Window로 에피소드 분할 (문맥 유지)
-    2. 부정 패턴 -> 긍정 패턴 순차 탐지
-    3. 중복 병합 및 검증
+    1. 전체 대화에 대해 부정 패턴 -> 긍정 패턴 순차 탐지 (모드별 1회 호출)
+    2. 중복 병합 및 검증
     """
     utterances_labeled = state.get("utterances_labeled") or []
 
     if not utterances_labeled:
         return {"patterns": []}
 
-    # 1. Sliding Window 적용 (10개씩, 5개 겹치게)
-    episodes = _segment_utterances_into_episodes(utterances_labeled, window_size=10, step=5)
-
-    # 2. 부정 패턴 탐지
-    negative_patterns: List[Dict[str, Any]] = []
-    for episode_indices in episodes:
-        neg = _run_pattern_llm_on_episode(
-            utterances_labeled=utterances_labeled,
-            episode_indices=episode_indices,
-            mode="negative",
-        )
-        negative_patterns.extend(neg)
-
-    # 부정 패턴 병합
+    # 1. 부정 패턴 탐지 (전체 대화 기준, 1회 호출)
+    negative_patterns: List[Dict[str, Any]] = _run_pattern_llm_on_episode(
+        utterances_labeled=utterances_labeled,
+        episode_indices=list(range(len(utterances_labeled))),
+        mode="negative",
+    )
+    # 부정 패턴 병합 (혹시 중복이 있더라도 정리)
     negative_patterns = _merge_overlapping_patterns(negative_patterns)
     
-    # 3. 긍정 패턴 탐지
-    positive_patterns: List[Dict[str, Any]] = []
-    for episode_indices in episodes:
-        pos = _run_pattern_llm_on_episode(
-            utterances_labeled=utterances_labeled,
-            episode_indices=episode_indices,
-            mode="positive",
-        )
-        positive_patterns.extend(pos)
-
+    # 2. 긍정 패턴 탐지 (전체 대화 기준, 1회 호출)
+    positive_patterns: List[Dict[str, Any]] = _run_pattern_llm_on_episode(
+        utterances_labeled=utterances_labeled,
+        episode_indices=list(range(len(utterances_labeled))),
+        mode="positive",
+    )
     # 긍정 패턴 병합
     positive_patterns = _merge_overlapping_patterns(positive_patterns)
 
