@@ -16,7 +16,12 @@ _ACTION_DETECTION_PROMPT = ChatPromptTemplate.from_messages([
             "You are an expert analyzing parent-child interactions. "
             "Analyze the utterances and identify which parent utterances demonstrate the specific action. "
             "Return ONLY a JSON object with: {{relevant_indices: [list of utterance indices]}}. "
-            "relevant_indices: list of indices (0-based) where the parent performed the action. No extra text."
+            "relevant_indices: list of indices (0-based) where the parent performed the action. No extra text.\n\n"
+            "*** Important: Avoid Duplicate Detection ***\n"
+            "- If multiple utterances express the same action with similar wording or meaning, select only ONE representative utterance (preferably the first or most clear one).\n"
+            "- If utterances are very close in sequence (within 2-3 utterances) and express the same action, select only ONE.\n"
+            "- Only include distinct instances where the action is clearly performed in a meaningfully different context or moment.\n"
+            "- Focus on quality over quantity: it's better to return fewer, distinct instances than many similar ones."
         ),
     ),
     (
@@ -25,7 +30,9 @@ _ACTION_DETECTION_PROMPT = ChatPromptTemplate.from_messages([
             "Action to detect:\n{action_content}\n\n"
             "Challenge context:\n{challenge_name}\n\n"
             "All utterances (with index):\n{utterances_with_index}\n\n"
-            "Identify parent utterances that demonstrate the action and return JSON with relevant_indices only."
+            "Identify parent utterances that demonstrate the action. "
+            "Avoid duplicates: if multiple utterances express the same action, select only the most representative one. "
+            "Return JSON with relevant_indices only."
         ),
     ),
 ])
@@ -35,8 +42,12 @@ _SUMMARY_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
         "system",
         (
             "You are an expert analyzing parent-child interactions. "
-            "Generate a brief summary (in Korean) describing the situation where the parent performed the specific action. "
-            "The summary should be concise (1-2 sentences) and describe what happened in this interaction moment. "
+            "Using ONLY the dialogue content provided, generate a brief summary (in Korean) describing the situation where the parent performed the specific action. "
+            "The summary should be concise (1-2 sentences) and describe what actually happened in this interaction moment based on the dialogue.\n"
+            "- The summary MUST be grounded in the 'Dialogue context' utterances, not in the action description text.\n"
+            "- If you quote what the parent said, you MUST copy the exact Korean utterance from the dialogue context (e.g., 부모: ...), without changing or inventing new wording.\n"
+            "- DO NOT assume or fabricate that the parent said the example phrase from 'Action performed' unless the exact same wording appears in the dialogue.\n"
+            "- Prefer to include at least one short direct quote from the parent's utterance in quotation marks, taken verbatim from the dialogue context.\n"
             "The Korean summary MUST be written in polite formal speech (존댓말, e.g., '~합니다', '~합니다.'). "
             "Return ONLY the summary text, no extra explanation."
         ),
@@ -63,6 +74,28 @@ def _format_timestamp(timestamp_ms: Optional[int]) -> str:
     seconds = total_seconds % 60
     
     return f"{minutes:02d}:{seconds:02d}"
+
+
+def _get_timestamp_ms(utterances: List[Dict[str, Any]], utterance_idx: int) -> int:
+    """발화 인덱스에 해당하는 타임스탬프를 밀리초로 반환"""
+    if utterance_idx < 0 or utterance_idx >= len(utterances):
+        return 0
+    
+    utt = utterances[utterance_idx]
+    if not isinstance(utt, dict):
+        return 0
+    
+    timestamp_ms = utt.get("timestamp")
+    if timestamp_ms is None or timestamp_ms == 0:
+        timestamp_ms = utt.get("timestamp_ms") or utt.get("time") or utt.get("ts")
+    
+    if timestamp_ms is not None and timestamp_ms != 0:
+        try:
+            return int(timestamp_ms)
+        except (ValueError, TypeError):
+            return 0
+    
+    return 0
 
 
 def _find_utterance_timestamp(
@@ -245,9 +278,41 @@ def _evaluate_action(
     if not relevant_indices:
         return None
     
+    # 중복 제거: 시간적으로 가까운 인스턴스들을 그룹화 (15초 이내)
+    # 타임스탬프 기준으로 정렬
+    indices_with_time = [
+        (idx, _get_timestamp_ms(utterances, idx))
+        for idx in relevant_indices
+    ]
+    indices_with_time.sort(key=lambda x: x[1])  # 타임스탬프 기준 정렬
+    
+    # 시간적으로 가까운 인스턴스들을 그룹화 (15초 = 15000ms 이내)
+    TIME_THRESHOLD_MS = 15000
+    deduplicated_indices = []
+    
+    if indices_with_time:
+        current_group = [indices_with_time[0]]
+        for idx, ts_ms in indices_with_time[1:]:
+            # 현재 그룹의 마지막 타임스탬프와 비교
+            last_ts = current_group[-1][1]
+            if ts_ms - last_ts <= TIME_THRESHOLD_MS:
+                # 같은 그룹에 추가
+                current_group.append((idx, ts_ms))
+            else:
+                # 새로운 그룹 시작: 이전 그룹에서 하나만 선택 (첫 번째 것)
+                deduplicated_indices.append(current_group[0][0])
+                current_group = [(idx, ts_ms)]
+        
+        # 마지막 그룹 처리
+        if current_group:
+            deduplicated_indices.append(current_group[0][0])
+    
+    # 최대 10개로 제한
+    deduplicated_indices = deduplicated_indices[:10]
+    
     # instances 생성 (순환 참조 방지를 위해 모든 값을 기본 타입으로 변환)
     instances = []
-    for idx in relevant_indices[:10]:  # 최대 10개
+    for idx in deduplicated_indices:
         timestamp = _find_utterance_timestamp(utterances, idx)
         summary = _create_situation_summary(utterances, idx, action_content, challenge_name)
         
@@ -260,7 +325,7 @@ def _evaluate_action(
     return {
         "challenge_name": str(challenge_name),
         "action_id": int(action_id),
-        "detected_count": int(len(relevant_indices)),
+        "detected_count": int(len(deduplicated_indices)),
         "description": str(action_content),
         "instances": instances
     }
