@@ -118,10 +118,18 @@ def summary_diagnosis_node(state: Dict[str, Any]) -> Dict[str, Any]:
     summary_diagnosis: 전체 상호작용 진단 (단계, 긍정/부정 비율)
     utterances_labeled에서 직접 라벨 정보를 사용하여 Python으로 계산
     """
+    print("\n" + "="*60)
+    print("[SummaryDiagnosisAgent] 상호작용 진단 시작")
+    print("="*60)
+    
     utterances_labeled = state.get("utterances_labeled") or []
     patterns = state.get("patterns") or []
     
+    print(f"[SummaryDiagnosisAgent] 분석할 발화 수: {len(utterances_labeled)}개")
+    
     if not utterances_labeled:
+        print("[SummaryDiagnosisAgent] 경고: 분석할 발화가 없음")
+        print("="*60 + "\n")
         return {
             "summary_diagnosis": {
                 "stage_name": "분석 불가",
@@ -131,6 +139,7 @@ def summary_diagnosis_node(state: Dict[str, Any]) -> Dict[str, Any]:
         }
     
     # utterances_labeled에서 직접 Python으로 비율 계산
+    print("[SummaryDiagnosisAgent] 긍정/부정 비율 계산 중...")
     positive_ratio, negative_ratio = _calculate_ratios_from_labels(utterances_labeled)
     
     # 비율과 패턴을 기반으로 단계 이름 결정
@@ -140,6 +149,12 @@ def summary_diagnosis_node(state: Dict[str, Any]) -> Dict[str, Any]:
         utterances_labeled, 
         patterns
     )
+    
+    print(f"[SummaryDiagnosisAgent] 진단 완료:")
+    print(f"  - 단계: {stage_name}")
+    print(f"  - 긍정 비율: {positive_ratio:.1%}")
+    print(f"  - 부정 비율: {negative_ratio:.1%}")
+    print("="*60 + "\n")
     
     return {
         "summary_diagnosis": {

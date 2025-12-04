@@ -47,10 +47,18 @@ def translate_ko_to_en_node(state: Dict[str, Any]) -> Dict[str, Any]:
     utterances_normalized를 받아서 영어로 번역한 utterances_en 반환
     utterances_normalized 형식: [{speaker: "MOM"|"CHI", 발화내용_ko: str}, ...]
     """
+    print("\n" + "="*60)
+    print("[TranslateAgent] 한국어→영어 번역 시작")
+    print("="*60)
+    
     utterances_normalized = state.get("utterances_normalized") or []
     
     if not utterances_normalized:
+        print("[TranslateAgent] 경고: 번역할 발화가 없음")
+        print("="*60 + "\n")
         return {"utterances_en": []}
+    
+    print(f"[TranslateAgent] 번역할 발화 수: {len(utterances_normalized)}개")
     
     # 구조화된 형식인지 확인 (딕셔너리 리스트)
     if utterances_normalized and isinstance(utterances_normalized[0], dict):
@@ -64,10 +72,12 @@ def translate_ko_to_en_node(state: Dict[str, Any]) -> Dict[str, Any]:
         utterances_text = "\n".join(utterances_normalized)
     
     # Structured LLM로 번역
+    print("[TranslateAgent] LLM으로 번역 중...")
     structured_llm = get_structured_llm(TranslationResponse, mini=True)
     
     try:
         res = (_TRANSLATE_PROMPT | structured_llm).invoke({"utterances_ko": utterances_text})
+        print("[TranslateAgent] LLM 번역 완료")
         
         # Pydantic 모델에서 데이터 추출
         if isinstance(res, TranslationResponse):
@@ -93,6 +103,8 @@ def translate_ko_to_en_node(state: Dict[str, Any]) -> Dict[str, Any]:
                     "timestamp": timestamp  # timestamp 포함
                 })
             
+            print(f"[TranslateAgent] 번역 완료: {len(utterances_en)}개 발화")
+            print("="*60 + "\n")
             return {"utterances_en": utterances_en}
         
         # 폴백: 예상치 못한 형식

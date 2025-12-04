@@ -89,14 +89,25 @@ def _fallback_from_lines(lines: List[str]) -> List[str]:
 
 
 def highlight_extract_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    print("\n" + "="*60)
+    print("[HighlightAgent] 하이라이트 추출 시작")
+    print("="*60)
+    
     dialogue = state.get("message") or state.get("dialogue") or ""
     if not dialogue or not str(dialogue).strip():
+        print("[HighlightAgent] 경고: 분석할 대화가 없음")
+        print("="*60 + "\n")
         return {"highlights": []}
 
     lines = [ln.strip() for ln in str(dialogue).splitlines() if ln.strip()]
     if not lines:
+        print("[HighlightAgent] 경고: 추출할 라인이 없음")
+        print("="*60 + "\n")
         return {"highlights": []}
+    
+    print(f"[HighlightAgent] 분석할 라인 수: {len(lines)}개")
 
+    print("[HighlightAgent] LLM으로 하이라이트 추출 중...")
     llm = get_llm(mini=True)
     numbered = _number_lines(lines)
     res = (_PROMPT | llm).invoke({"numbered": numbered})
@@ -109,9 +120,15 @@ def highlight_extract_node(state: Dict[str, Any]) -> Dict[str, Any]:
         picks = _parse_indices_or_highlights(content, lines)
         if not picks:
             raise ValueError("empty picks after parse")
+        print(f"[HighlightAgent] 하이라이트 추출 완료: {len(picks[:10])}개")
+        print("="*60 + "\n")
         return {"highlights": picks[:10]}
     except Exception:
-        return {"highlights": _fallback_from_lines(lines)}
+        print("[HighlightAgent] 파싱 실패, 폴백 사용")
+        fallback_picks = _fallback_from_lines(lines)
+        print(f"[HighlightAgent] 폴백 하이라이트: {len(fallback_picks)}개")
+        print("="*60 + "\n")
+        return {"highlights": fallback_picks}
 
 
 if __name__ == "__main__":

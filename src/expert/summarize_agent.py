@@ -143,6 +143,10 @@ def summarize_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     ⑤ summarize: 오늘의 진단 (새로운 JSON 형식)
     """
+    print("\n" + "="*60)
+    print("[SummarizeAgent] 요약 생성 시작")
+    print("="*60)
+    
     utterances_labeled = state.get("utterances_labeled") or []
     utterances_ko = state.get("utterances_ko") or []
     patterns = state.get("patterns") or []
@@ -152,7 +156,13 @@ def summarize_node(state: Dict[str, Any]) -> Dict[str, Any]:
     key_moments = state.get("key_moments") or {}
     meta = state.get("meta") or {}
     
+    print(f"[SummarizeAgent] 입력 데이터 확인:")
+    print(f"  - 라벨링된 발화: {len(utterances_labeled)}개")
+    print(f"  - 패턴: {len(patterns)}개")
+    
     if not utterances_labeled:
+        print("[SummarizeAgent] 경고: 분석할 발화가 없음")
+        print("="*60 + "\n")
         return {
             "summary": {
                 "analysis_session": {
@@ -163,6 +173,7 @@ def summarize_node(state: Dict[str, Any]) -> Dict[str, Any]:
         }
     
     # 코멘트 생성 (LLM)
+    print("[SummarizeAgent] LLM으로 코멘트 생성 중...")
     llm = get_llm(mini=False)
     style_str = json.dumps(style_analysis, ensure_ascii=False, indent=2) if style_analysis else "(없음)"
     patterns_str = "\n".join([
@@ -177,17 +188,23 @@ def summarize_node(state: Dict[str, Any]) -> Dict[str, Any]:
         })
         comment = getattr(res, "content", "") or str(res)
         comment = comment.strip()
+        print("[SummarizeAgent] 코멘트 생성 완료")
     except Exception as e:
-        print(f"Comment generation error: {e}")
+        print(f"[SummarizeAgent] 코멘트 생성 오류: {e}")
         comment = "대화 패턴을 분석했습니다."
     
     # 메트릭 추출
+    print("[SummarizeAgent] 메트릭 추출 중...")
     current_metrics = _extract_metrics_from_style_analysis(style_analysis)
     pattern_metrics = _extract_pattern_count_metrics(patterns, key_moments)
     current_metrics.extend(pattern_metrics)
+    print(f"[SummarizeAgent] 메트릭 추출 완료: {len(current_metrics)}개")
     
     # challenge_evaluations는 aggregate_result_node에서 처리됨
     # (summarize_node와 challenge_eval_node가 병렬 실행되므로 여기서는 포함하지 않음)
+    
+    print("[SummarizeAgent] 요약 생성 완료")
+    print("="*60 + "\n")
     
     return {
         "summary": {

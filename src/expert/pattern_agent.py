@@ -465,34 +465,55 @@ def detect_patterns_node(state: Dict[str, Any]) -> Dict[str, Any]:
     1. 전체 대화에 대해 부정 패턴 -> 긍정 패턴 순차 탐지 (모드별 1회 호출)
     2. 중복 병합 및 검증
     """
+    print("\n" + "="*60)
+    print("[PatternAgent] 패턴 탐지 시작")
+    print("="*60)
+    
     utterances_labeled = state.get("utterances_labeled") or []
 
     if not utterances_labeled:
+        print("[PatternAgent] 경고: 분석할 발화가 없음")
+        print("="*60 + "\n")
         return {"patterns": []}
 
+    print(f"[PatternAgent] 분석할 발화 수: {len(utterances_labeled)}개")
+
     # 1. 부정 패턴 탐지 (전체 대화 기준, 1회 호출)
+    print("[PatternAgent] 부정 패턴 탐지 중...")
     negative_patterns: List[Dict[str, Any]] = _run_pattern_llm_on_episode(
         utterances_labeled=utterances_labeled,
         episode_indices=list(range(len(utterances_labeled))),
         mode="negative",
     )
     # 부정 패턴 병합 (혹시 중복이 있더라도 정리)
+    print(f"[PatternAgent] 부정 패턴 탐지 완료: {len(negative_patterns)}개")
     negative_patterns = _merge_overlapping_patterns(negative_patterns)
+    print(f"[PatternAgent] 부정 패턴 병합 후: {len(negative_patterns)}개")
     
     # 2. 긍정 패턴 탐지 (전체 대화 기준, 1회 호출)
+    print("[PatternAgent] 긍정 패턴 탐지 중...")
     positive_patterns: List[Dict[str, Any]] = _run_pattern_llm_on_episode(
         utterances_labeled=utterances_labeled,
         episode_indices=list(range(len(utterances_labeled))),
         mode="positive",
     )
     # 긍정 패턴 병합
+    print(f"[PatternAgent] 긍정 패턴 탐지 완료: {len(positive_patterns)}개")
     positive_patterns = _merge_overlapping_patterns(positive_patterns)
+    print(f"[PatternAgent] 긍정 패턴 병합 후: {len(positive_patterns)}개")
 
     # 4. 검증 (LLM Cross-Check)
+    print("[PatternAgent] 패턴 검증 중...")
     negative_patterns = _validate_patterns_with_llm(negative_patterns, utterances_labeled)
     positive_patterns = _validate_patterns_with_llm(positive_patterns, utterances_labeled)
+    print(f"[PatternAgent] 검증 완료: 부정 {len(negative_patterns)}개, 긍정 {len(positive_patterns)}개")
 
     # 5. 최종 병합
     all_patterns = negative_patterns + positive_patterns
+    print(f"[PatternAgent] 최종 패턴 수: {len(all_patterns)}개")
+    if all_patterns:
+        pattern_names = [p.get("pattern_name", "알 수 없음") for p in all_patterns[:5]]
+        print(f"[PatternAgent] 주요 패턴: {', '.join(pattern_names)}")
+    print("="*60 + "\n")
 
     return {"patterns": all_patterns}

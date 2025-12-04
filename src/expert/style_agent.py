@@ -101,13 +101,21 @@ def analyze_style_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     ⑦ analyze_style: 스타일/비율 분석 (라벨 기반 통계)
     """
+    print("\n" + "="*60)
+    print("[StyleAgent] 스타일 분석 시작")
+    print("="*60)
+    
     utterances_labeled = state.get("utterances_labeled") or []
     patterns = state.get("patterns") or []
+    
+    print(f"[StyleAgent] 분석할 발화 수: {len(utterances_labeled)}개")
     
     # 모든 DPICS 라벨 목록
     all_labels = ["RD", "PR", "CMD", "Q", "NT", "BD", "NEG", "IGN", "OTH"]
     
     if not utterances_labeled:
+        print("[StyleAgent] 경고: 분석할 발화가 없음")
+        print("="*60 + "\n")
         # 모든 라벨에 대한 빈 비율 생성
         empty_label_ratios = {label: 0.0 for label in all_labels}
         empty_categories = [
@@ -134,11 +142,13 @@ def analyze_style_node(state: Dict[str, Any]) -> Dict[str, Any]:
         }
     
     # 패턴/라벨 기반 통계 계산
+    print("[StyleAgent] 발화 분류 중...")
     parent_utterances = [utt for utt in utterances_labeled if utt.get("speaker") in ["Parent", "MOM", "Dad", "Father", "Mother"]]
     child_utterances = [utt for utt in utterances_labeled if utt.get("speaker") in ["Child", "CHI", "Kid", "Son", "Daughter"]]
     
     total_parent = len(parent_utterances)
     total_child = len(child_utterances)
+    print(f"[StyleAgent] 발화 분류 완료: 부모 {total_parent}개, 아이 {total_child}개")
     
     # 부모 발화 라벨 통계
     parent_label_counts = {}
@@ -212,6 +222,16 @@ def analyze_style_node(state: Dict[str, Any]) -> Dict[str, Any]:
     ]
     # ratio가 높은 순으로 정렬
     child_categories.sort(key=lambda x: x["ratio"], reverse=True)
+    
+    # 상위 라벨 출력
+    top_parent = parent_categories[0] if parent_categories else None
+    top_child = child_categories[0] if child_categories else None
+    print(f"[StyleAgent] 스타일 분석 완료:")
+    if top_parent:
+        print(f"  - 부모 주요 라벨: {top_parent['name']} ({top_parent['ratio']:.1%})")
+    if top_child:
+        print(f"  - 아이 주요 라벨: {top_child['name']} ({top_child['ratio']:.1%})")
+    print("="*60 + "\n")
     
     return {
         "style_analysis": {

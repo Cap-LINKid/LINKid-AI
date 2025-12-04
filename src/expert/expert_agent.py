@@ -26,16 +26,28 @@ def _format_highlights(highlights: List[str]) -> str:
 
 
 def parenting_advice_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    print("\n" + "="*60)
+    print("[ExpertAgent] 전문가 조언 생성 시작")
+    print("="*60)
+    
     dialogue = state.get("message") or state.get("dialogue") or ""
     context = state.get("context") or ""
     if not dialogue.strip():
+        print("[ExpertAgent] 경고: 대화 내용이 비어있음")
+        print("="*60 + "\n")
         return {"advice": "대화 내용이 비어있어요. 부모-아이 발화를 함께 제공해주세요."}
 
     # DPICS 라벨은 sentiment_label_node가 생성한 annotated 사용
     annotated = state.get("annotated") or ""
     highlights = state.get("highlights") or []
     highlights_str = _format_highlights(highlights)
+    
+    print(f"[ExpertAgent] 입력 데이터 확인:")
+    print(f"  - 대화 길이: {len(dialogue)} 문자")
+    print(f"  - 하이라이트: {len(highlights)}개")
+    print(f"  - DPICS 라벨: {'있음' if annotated else '없음'}")
 
+    print("[ExpertAgent] LLM으로 조언 생성 중...")
     llm = get_llm(mini=False)
     chain = PROMPT | llm
 
@@ -59,6 +71,8 @@ def parenting_advice_node(state: Dict[str, Any]) -> Dict[str, Any]:
         "context": context,
     })
     advice = getattr(res, "content", str(res))
+    print(f"[ExpertAgent] 조언 생성 완료 (길이: {len(advice)} 문자)")
+    print("="*60 + "\n")
     return {"advice": advice}
 
 

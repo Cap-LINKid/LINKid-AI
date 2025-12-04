@@ -53,6 +53,10 @@ def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
     ⑩ aggregate_result: 최종 JSON 집계
     모든 분석 결과를 하나의 JSON으로 통합
     """
+    print("\n" + "="*60)
+    print("[AggregateAgent] 최종 결과 집계 시작")
+    print("="*60)
+    
     summary = state.get("summary", {})
     style_analysis = state.get("style_analysis", {})
     challenge_eval = state.get("challenge_eval", {})
@@ -66,6 +70,13 @@ def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
     patterns = state.get("patterns", [])
     summary_diagnosis = state.get("summary_diagnosis", {})
     coaching_plan = state.get("coaching_plan", {})
+    
+    print(f"[AggregateAgent] 집계할 데이터 확인:")
+    print(f"  - 요약: {'있음' if summary else '없음'}")
+    print(f"  - 패턴: {len(patterns)}개")
+    print(f"  - 핵심 순간: {'있음' if key_moments else '없음'}")
+    print(f"  - 코칭 계획: {'있음' if coaching_plan else '없음'}")
+    print(f"  - 챌린지 평가: {len(challenge_evals)}개")
     
     # summary가 새로운 형식인 경우 업데이트 (growth_report 형식)
     if isinstance(summary, dict) and "analysis_session" in summary:
@@ -126,6 +137,12 @@ def aggregate_result_node(state: Dict[str, Any]) -> Dict[str, Any]:
         "growth_report": summary,
         "scores": scores,
     }
+    
+    print(f"[AggregateAgent] 최종 결과 집계 완료")
+    print(f"  - PI 점수: {scores.get('pi_score', 0)}")
+    print(f"  - NDI 점수: {scores.get('ndi_score', 0)}")
+    print("="*60 + "\n")
+    
     
     # LangGraph UI에서 확인할 때 status API 응답과 동일한 형태로 보이도록
     # 중간 노드 결과들을 모두 제거하고 result만 포함

@@ -22,10 +22,18 @@ def label_utterances_node(state: Dict[str, Any]) -> Dict[str, Any]:
     utterances_en을 받아서 라벨링된 utterances_labeled 반환
     utterances_en 형식: [{speaker, korean, english, text, original_ko}, ...] 또는 ["Parent: ...", ...]
     """
+    print("\n" + "="*60)
+    print("[LabelAgent] DPICS 라벨링 시작")
+    print("="*60)
+    
     utterances_en = state.get("utterances_en") or []
     
     if not utterances_en:
+        print("[LabelAgent] 경고: 라벨링할 발화가 없음")
+        print("="*60 + "\n")
         return {"utterances_labeled": []}
+    
+    print(f"[LabelAgent] 라벨링할 발화 수: {len(utterances_en)}개")
     
     # 구조화된 형식인지 확인
     is_structured = isinstance(utterances_en[0], dict) if utterances_en else False
@@ -48,15 +56,21 @@ def label_utterances_node(state: Dict[str, Any]) -> Dict[str, Any]:
     
     # DPICS 라벨링 (ELECTRA 모델 또는 LLM 기반)
     if USE_ELECTRA and ELECTRA_AVAILABLE:
+        print("[LabelAgent] ELECTRA 모델로 라벨링 중...")
         try:
             labeled_pairs = label_lines_dpics_electra(utterances_text)
+            print("[LabelAgent] ELECTRA 모델 라벨링 완료")
         except Exception as e:
-            print(f"ELECTRA 모델 라벨링 실패, LLM으로 폴백: {e}")
+            print(f"[LabelAgent] ELECTRA 모델 라벨링 실패, LLM으로 폴백: {e}")
             # LLM은 한국어 발화를 대상으로 라벨링
+            print("[LabelAgent] LLM으로 라벨링 중...")
             labeled_pairs = label_lines_dpics_llm(utterances_text_ko if utterances_text_ko else utterances_text)
+            print("[LabelAgent] LLM 라벨링 완료")
     else:
         # LLM은 한국어 발화를 대상으로 라벨링
+        print("[LabelAgent] LLM으로 라벨링 중...")
         labeled_pairs = label_lines_dpics_llm(utterances_text_ko if utterances_text_ko else utterances_text)
+        print("[LabelAgent] LLM 라벨링 완료")
     
     # 발화와 라벨을 딕셔너리 리스트로 변환
     # LLM이 반환한 line이 원본과 정확히 일치하지 않을 수 있으므로,
@@ -150,6 +164,9 @@ def label_utterances_node(state: Dict[str, Any]) -> Dict[str, Any]:
     
     # LLM이 반환하지 않은 원본 발화들도 추가 (기본 라벨)
     # 순환 참조 방지를 위해 필요한 필드만 명시적으로 추출하여 새로운 딕셔너리 생성
+    unmatched_count = sum(1 for orig in original_parsed if not orig["matched"])
+    if unmatched_count > 0:
+        print(f"[LabelAgent] 매칭되지 않은 발화 {unmatched_count}개에 기본 라벨 적용 중...")
     for orig in original_parsed:
         if not orig["matched"]:
             utterances_labeled.append({
@@ -161,6 +178,16 @@ def label_utterances_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 "english": str(orig.get("english", orig.get("text", ""))),  # 영어 번역 포함
                 "timestamp": orig.get("timestamp")  # timestamp 포함 (int 또는 None)
             })
+    
+    # 라벨 분포 통계
+    label_counts = {}
+    for utt in utterances_labeled:
+        label = utt.get("label", "OTH")
+        label_counts[label] = label_counts.get(label, 0) + 1
+    
+    print(f"[LabelAgent] 라벨링 완료: 총 {len(utterances_labeled)}개")
+    print(f"[LabelAgent] 라벨 분포: {dict(label_counts)}")
+    print("="*60 + "\n")
     
     return {"utterances_labeled": utterances_labeled}
 

@@ -250,13 +250,24 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     ⑧ coaching_plan: 코칭/실천 계획 (LLM)
     """
+    print("\n" + "="*60)
+    print("[CoachingAgent] 코칭 계획 생성 시작")
+    print("="*60)
+    
     summary = state.get("summary") or ""
     style_analysis = state.get("style_analysis") or {}
     patterns = state.get("patterns") or []
     key_moments = state.get("key_moments") or {}
     utterances = state.get("utterances_ko") or []
     
+    print(f"[CoachingAgent] 입력 데이터 확인:")
+    print(f"  - 요약: {'있음' if summary else '없음'}")
+    print(f"  - 패턴 수: {len(patterns)}개")
+    print(f"  - 핵심 순간: {'있음' if key_moments else '없음'}")
+    print(f"  - 발화 수: {len(utterances)}개")
+    
     if not summary and not patterns:
+        print("[CoachingAgent] 경고: 분석할 데이터가 없어 기본값 반환")
         return {
             "coaching_plan": {
                 "summary": "분석할 데이터가 없습니다.",
@@ -275,9 +286,12 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
             }
         }
     
+    print("[CoachingAgent] LLM 초기화 중...")
     llm = get_llm(mini=False)
+    print("[CoachingAgent] LLM 초기화 완료")
     
     # 포맷팅
+    print("[CoachingAgent] 입력 데이터 포맷팅 중...")
     style_str = json.dumps(style_analysis, ensure_ascii=False, indent=2) if style_analysis else "(없음)"
     
     # 패턴 정보 포맷팅 (부정적 패턴만 포함, 패턴명과 횟수 포함)
@@ -342,6 +356,7 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
         dialogue_examples_str = "(없음)"
     
     # VectorDB 검색 (챌린지 생성용) - LLM으로 키워드 생성 후 검색
+    print("[CoachingAgent] VectorDB 검색 준비 중...")
     expert_advice_section = ""
     expert_references_list = []
     all_expert_advice = []  # 모든 검색 결과 수집
@@ -351,6 +366,7 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
     use_vector_db = use_vector_db_env != "false"
     
     if use_vector_db:
+        print("[CoachingAgent] VectorDB 검색 활성화됨")
         try:
             # 부정적 패턴 목록 가져오기
             negative_patterns = _get_negative_patterns(patterns, key_moments)
@@ -556,6 +572,7 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
         else:
             expert_advice_section = ""
     
+    print("[CoachingAgent] LLM으로 코칭 계획 생성 중...")
     try:
         res = (_COACHING_PROMPT | llm).invoke({
             "summary": summary,
@@ -565,12 +582,15 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "dialogue_examples": dialogue_examples_str,
             "expert_advice_section": expert_advice_section,
         })
+        print("[CoachingAgent] LLM 응답 수신 완료")
         content = getattr(res, "content", "") or str(res)
         
         # JSON 객체 파싱
+        print("[CoachingAgent] LLM 응답 파싱 중...")
         json_match = re.search(r'\{[\s\S]*\}', content)
         if json_match:
             coaching_data = json.loads(json_match.group(0))
+            print("[CoachingAgent] JSON 파싱 성공")
             if isinstance(coaching_data, dict):
                 # 챌린지 정보에 날짜 정보 추가
                 if "challenge" in coaching_data and isinstance(coaching_data["challenge"], dict):
@@ -629,11 +649,20 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         # LLM이 임의로 생성했을 수 있으므로 추가 가공은 하지 않는다.
                         pass
                 
+                print("[CoachingAgent] 코칭 계획 생성 완료")
+                print(f"  - 챌린지 제목: {coaching_data.get('challenge', {}).get('title', 'N/A')}")
+                print(f"  - 액션 수: {len(coaching_data.get('challenge', {}).get('actions', []))}개")
+                print(f"  - QA 팁 수: {len(coaching_data.get('qa_tips', []))}개")
+                print("="*60 + "\n")
                 return {"coaching_plan": coaching_data}
     except Exception as e:
-        print(f"Coaching plan error: {e}")
+        print(f"[CoachingAgent] 오류 발생: {e}")
+        import traceback
+        traceback.print_exc()
     
     # 폴백: 기본 구조 반환
+    print("[CoachingAgent] 폴백: 기본 구조 반환")
+    print("="*60 + "\n")
     return {
         "coaching_plan": {
             "summary": "코칭 계획 생성 중 오류가 발생했습니다.",

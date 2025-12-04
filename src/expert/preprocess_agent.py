@@ -635,30 +635,42 @@ def preprocess_node(state: Dict[str, Any]) -> Dict[str, Any]:
     utterances_ko를 받아서 스피커를 정규화한 utterances_normalized 반환
     반환 형식: [{speaker: "MOM" | "CHI", 발화내용_ko: str}, ...]
     """
+    print("\n" + "="*60)
+    print("[PreprocessAgent] 발화 전처리 시작")
+    print("="*60)
+    
     utterances_ko = state.get("utterances_ko") or []
     
     if not utterances_ko:
         # 기존 message/dialogue에서 파싱 시도
         dialogue = state.get("message") or state.get("dialogue") or ""
         if dialogue:
+            print("[PreprocessAgent] message/dialogue에서 발화 파싱 중...")
             utterances_ko = [ln.strip() for ln in str(dialogue).splitlines() if ln.strip()]
     
     if not utterances_ko:
+        print("[PreprocessAgent] 경고: 처리할 발화가 없음")
+        print("="*60 + "\n")
         return {"utterances_normalized": []}
+    
+    print(f"[PreprocessAgent] 입력 발화 수: {len(utterances_ko)}개")
     
     # utterances_ko가 객체 리스트인지 문자열 리스트인지 확인
     is_object_list = bool(utterances_ko and isinstance(utterances_ko[0], dict))
     
     # STT 텍스트 오류 보정 (정규화 전에 수행)
-    print(f"DEBUG: [STT Correction] Starting STT error correction for {len(utterances_ko)} utterances")
+    print(f"[PreprocessAgent] STT 오류 보정 중... ({len(utterances_ko)}개 발화)")
     utterances_ko = _correct_stt_errors(utterances_ko, is_object_list)
     
     # A/B 패턴과 명시적 스피커 패턴 감지
+    print("[PreprocessAgent] 스피커 패턴 감지 중...")
     has_ab_pattern, has_explicit_speakers = _detect_patterns(utterances_ko, is_object_list)
+    print(f"[PreprocessAgent] 패턴 감지 결과: A/B 패턴={has_ab_pattern}, 명시적 스피커={has_explicit_speakers}")
     
     # A/B 패턴이 있고, 명시적 스피커가 없을 때만 LLM으로 스피커 식별
     ab_mapping = {}
     if has_ab_pattern and not has_explicit_speakers:
+        print("[PreprocessAgent] LLM으로 스피커 식별 중...")
         if is_object_list:
             ab_mapping = _identify_speakers_with_llm(utterances_ko)
         else:
@@ -676,6 +688,7 @@ def preprocess_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 ab_mapping = _identify_speakers_with_llm(obj_list)
     
     # 발화 정규화
+    print("[PreprocessAgent] 발화 정규화 중...")
     normalized: List[Dict[str, Any]] = []
     last_speaker: Optional[str] = None
     
@@ -692,11 +705,17 @@ def preprocess_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # A/B 패턴이 있었던 경우에만 검증 및 보정 수행
     # (발화 내용을 분석하여 잘못 분류된 것들을 보정)
     if has_ab_pattern and not has_explicit_speakers and normalized:
+        print("[PreprocessAgent] 스피커 검증 및 보정 중...")
         normalized = _verify_and_correct_speakers(normalized, ab_mapping)
     
     # 검증 후 original_ab_label 필드 제거 (최종 결과에는 불필요)
     for utt in normalized:
         utt.pop("original_ab_label", None)
+    
+    mom_count = sum(1 for utt in normalized if utt.get("speaker") == "MOM")
+    chi_count = sum(1 for utt in normalized if utt.get("speaker") == "CHI")
+    print(f"[PreprocessAgent] 정규화 완료: 총 {len(normalized)}개 (부모: {mom_count}개, 아이: {chi_count}개)")
+    print("="*60 + "\n")
     
     return {"utterances_normalized": normalized}
 

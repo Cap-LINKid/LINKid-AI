@@ -242,6 +242,7 @@ def _find_relevant_utterances_with_llm(
     if not utterances or not action_content:
         return []
     
+    print(f"[ChallengeAgent] LLM으로 액션 관련 발화 탐지 중... (발화 수: {len(utterances)}개)")
     llm = get_llm(mini=True)  # 빠른 응답을 위해 mini 모델 사용
     
     # 발화를 인덱스와 함께 포맷팅 (부모 발화만 포함)
@@ -294,10 +295,11 @@ def _find_relevant_utterances_with_llm(
                             label = str(utt.get("label", "")).upper()
                             # CMD나 NEG가 포함된 라벨은 제외
                             if "CMD" in label or "NEG" in label:
-                                print(f"DEBUG: [Action Detection] Excluding utterance [{idx}] with label '{label}' (CMD/NEG filter)")
+                                print(f"[ChallengeAgent] 발화 [{idx}] 제외됨 (라벨: '{label}')")
                                 continue
                     filtered_indices.append(idx)
                 
+                print(f"[ChallengeAgent] LLM 탐지 완료: {len(filtered_indices)}개 발화 선택됨")
                 return filtered_indices
     except Exception as e:
         print(f"Action detection LLM error: {e}")
@@ -385,8 +387,13 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
     challenge_specs를 받아서 각 challenge의 각 action에 대해 수행 여부를 확인하고,
     수행된 action이 있으면 challenge_evaluation 형태로 반환
     """
+    print("\n" + "="*60)
+    print("[ChallengeAgent] 챌린지 평가 시작")
+    print("="*60)
+    
     # challenge_specs 우선, 없으면 challenge_spec을 리스트로 변환
     challenge_specs = state.get("challenge_specs") or []
+    print(f"[ChallengeAgent] 평가할 챌린지 수: {len(challenge_specs)}개")
     if not challenge_specs:
         challenge_spec = state.get("challenge_spec") or {}
         if challenge_spec:
@@ -394,6 +401,10 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
     
     utterances_labeled = state.get("utterances_labeled") or []
     utterances_ko = state.get("utterances_ko") or []
+    
+    print(f"[ChallengeAgent] 발화 데이터 확인:")
+    print(f"  - 라벨링된 발화: {len(utterances_labeled)}개")
+    print(f"  - 한국어 발화: {len(utterances_ko)}개")
     
     # utterances_labeled 우선 사용, 없으면 utterances_ko 사용
     # 순환 참조 방지를 위해 필요한 필드만 추출하여 새로운 리스트 생성
@@ -417,16 +428,21 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
             utterances.append(utt)
     
     if not challenge_specs:
+        print("[ChallengeAgent] 경고: 평가할 챌린지가 없음")
+        print("="*60 + "\n")
         return {
             "challenge_eval": {},
             "challenge_evals": []
         }
     
     # 각 challenge별로 action 평가
+    print("[ChallengeAgent] 각 챌린지별 액션 평가 시작...")
     challenge_evals = []
     challenge_evaluations = []
     
-    for challenge_spec in challenge_specs:
+    for idx, challenge_spec in enumerate(challenge_specs, 1):
+        challenge_name = challenge_spec.get("title", "알 수 없음")
+        print(f"[ChallengeAgent] 챌린지 {idx}/{len(challenge_specs)}: '{challenge_name}' 평가 중...")
         # challenge_spec에서 필요한 값만 추출 (순환 참조 방지)
         challenge_id = str(challenge_spec.get("challenge_id", ""))
         challenge_name = str(challenge_spec.get("title", ""))
@@ -445,10 +461,12 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
             continue
         
         # 각 action별로 평가
+        print(f"[ChallengeAgent]   - 액션 수: {len(actions)}개")
         action_evaluations = []
         challenge_actions_dict = {}  # action_id를 키로 사용하여 중복 제거
         
         for action_idx, action in enumerate(actions, start=1):
+            print(f"[ChallengeAgent]   - 액션 {action_idx}/{len(actions)} 평가 중...")
             action_idx_real = int(action.get("action_id", 1))
             # action이 문자열인 경우와 딕셔너리인 경우 모두 처리
             if isinstance(action, str):
@@ -471,6 +489,7 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
             
             # 수행된 action이 있으면 challenge_actions_dict에 추가 (중복 제거)
             if evaluation:
+                print(f"[ChallengeAgent]     ✓ 액션 {action_idx} 수행 감지됨 (인스턴스: {evaluation.get('detected_count', 0)}개)")
                 action_id = int(evaluation.get("action_id", 0))
                 
                 # challenge_evaluations용 action 데이터 생성
@@ -538,6 +557,11 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
     
     # 하위 호환성을 위해 첫 번째 챌린지 결과를 challenge_eval로도 반환
     first_eval = challenge_evals[0].copy() if challenge_evals else {}
+    
+    print(f"[ChallengeAgent] 평가 완료:")
+    print(f"  - 평가된 챌린지: {len(challenge_evals)}개")
+    print(f"  - 수행된 액션이 있는 챌린지: {len(challenge_evaluations)}개")
+    print("="*60 + "\n")
     
     return {
         "challenge_eval": first_eval,  # 하위 호환성

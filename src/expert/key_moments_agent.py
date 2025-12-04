@@ -280,20 +280,35 @@ async def _key_moments_node_async(state: Dict[str, Any]) -> Dict[str, Any]:
     utterances = state.get("utterances_labeled") or state.get("utterances_ko", [])
     patterns = state.get("patterns", [])
 
+    print(f"[KeyMomentsAgent] 입력 데이터 확인:")
+    print(f"  - 발화 수: {len(utterances)}개")
+    print(f"  - 패턴 수: {len(patterns)}개")
+
     if not patterns:
+        print("[KeyMomentsAgent] 경고: 분석할 패턴이 없음")
         return {"key_moments": None}
 
     # Severity 기준 정렬
+    print("[KeyMomentsAgent] 패턴 분류 및 정렬 중...")
     severity_order = {"high": 3, "medium": 2, "low": 1}
     neg_patterns = [p for p in patterns if p.get("pattern_type") == "negative"]
     pos_patterns = [p for p in patterns if p.get("pattern_type") == "positive"]
 
     neg_patterns.sort(key=lambda x: severity_order.get(x.get("severity", "low"), 1), reverse=True)
 
+    print(f"[KeyMomentsAgent] 패턴 분류 완료: 부정 {len(neg_patterns)}개, 긍정 {len(pos_patterns)}개")
+
     # 선택 대상
     target_positive = pos_patterns[0] if pos_patterns else None
     target_improvement = neg_patterns[0] if neg_patterns else None
     target_examples = neg_patterns[1:2]  # 딱 1개만
+    
+    if target_positive:
+        print(f"[KeyMomentsAgent] 긍정 패턴 선택: {target_positive.get('pattern_name', 'N/A')}")
+    if target_improvement:
+        print(f"[KeyMomentsAgent] 개선 패턴 선택: {target_improvement.get('pattern_name', 'N/A')}")
+    if target_examples:
+        print(f"[KeyMomentsAgent] 예시 패턴 선택: {target_examples[0].get('pattern_name', 'N/A')}")
 
     # ---------------------------------------------------------
     # RAG: 전문가 조언 검색 (긍정 / 최악 / 두 번째 패턴 각각) - 병렬 실행
@@ -558,11 +573,20 @@ async def _key_moments_node_async(state: Dict[str, Any]) -> Dict[str, Any]:
                     else:
                         pe.occurred_at = "0분 0초"
 
-    return {"key_moments": final_data.dict()}
+    result = final_data.dict()
+    print(f"[KeyMomentsAgent] 핵심 순간 분석 완료:")
+    print(f"  - 긍정적 순간: {len(result.get('positive', []))}개")
+    print(f"  - 개선 필요 순간: {len(result.get('needs_improvement', []))}개")
+    print(f"  - 패턴 예시: {len(result.get('pattern_examples', []))}개")
+    
+    return {"key_moments": result}
 
 
 def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """동기 래퍼 함수 - async 함수를 실행"""
+    print("\n" + "="*60)
+    print("[KeyMomentsAgent] 핵심 순간 분석 시작")
+    print("="*60)
     try:
         # 이미 실행 중인 이벤트 루프가 있는 경우
         loop = asyncio.get_running_loop()
@@ -570,7 +594,11 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(asyncio.run, _key_moments_node_async(state))
-            return future.result()
+            result = future.result()
+            print("="*60 + "\n")
+            return result
     except RuntimeError:
         # 이벤트 루프가 없는 경우
-        return asyncio.run(_key_moments_node_async(state))
+        result = asyncio.run(_key_moments_node_async(state))
+        print("="*60 + "\n")
+        return result
