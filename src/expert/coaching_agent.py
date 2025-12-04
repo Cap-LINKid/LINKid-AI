@@ -620,14 +620,10 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
                         reference_texts = []
                         for ref in selected_refs:
-                            title = ref["title"]
-                            reference = ref["reference"]
+                            reference = ref.get("reference", "").strip()
+                            # reference 컬럼 값만 표시 (title은 제외)
                             if reference:
-                                ref_text = f"'{title}' ({reference})"
-                            else:
-                                ref_text = f"'{title}'"
-
-                            reference_texts.append(ref_text)
+                                reference_texts.append(reference)
 
                         if reference_texts:
                             # [참고] 뒤에 최대 2개까지 붙이기

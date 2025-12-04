@@ -235,8 +235,9 @@ def _extract_dialogue(utterances: List[Dict], indices: List[int], max_items: int
 def _ref_desc_from_refs(refs: List[ExpertReference]) -> List[str]:
     desc = []
     for r in refs[:2]:
-        desc.append(f"{r.author} - {r.title}")
-    return desc[:2]
+        # source 필드에 DB의 reference 컬럼 값이 매핑되어 있음
+        desc.append(r.source if r.source else "")
+    return [d for d in desc if d]  # 빈 문자열 제거
 
 def _search_refs_for_pattern(pattern: Optional[Dict[str, Any]]) -> List[ExpertReference]:
     """하나의 패턴에 대해 전문가 DB(RAG) 검색"""
