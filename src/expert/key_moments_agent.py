@@ -88,10 +88,12 @@ Positive Moment 분석을 생성해야 합니다.
 ==============================
 📌 Positive Moment 규칙
 ==============================
+- positive_context.pattern_type 이 'positive'일 때만 positive moment를 생성할 수 있습니다.
+- pattern_type이 'positive'가 아니라면, 반드시 빈 배열 []을 반환하세요.
 - positive_context의 pattern과 dialogue만 사용
 - 전문가 조언 excerpt 1개를 reason에 자연스럽게 섞어 쓰기
 - reference_descriptions는 최대 2개
-- reason: 전문가 excerpt와 대화의 맥락과 상황을 파악하여 2~4 줄 정도로 길고 구체적으로 작성
+- reason: 전문가 excerpt와 대화의 맥락과 상황을 파악하여 2~4 줄 정도로 길고 전문가가 말하듯이 구체적으로 작성
 - tone은 따뜻하고 전문적이지만, ~~합니다.와 같이 공손하게 말할 수 있도록 한다.
 - positive한 순간이 없다면 빈배열 반환
 
@@ -129,7 +131,7 @@ Needs Improvement Moment 분석을 생성해야 합니다.
 - better_response: 실제 사용할 수 있는 구체 대사
 - reference_descriptions: 최대 2개
 - reason: 전문가 excerpt와 대화의 맥락과 상황을 파악하여 2~4 줄 정도로 길고 구체적으로 작성
-- better_response: 부모가 실제 사용할 수 있는 대사 형태와 이런 대안이 나온 이유를 뽑힌 전문가 excerpt를 반영해서 구체적으로 작성
+- better_response: 부모가 실제 사용할 수 있는 대사 형태와 이런 대안이 나온 이유를 뽑힌 전문가 excerpt를 반영해서 구체적인 행위로 작성
 - tone은 따뜻하고 전문적이지만, ~~합니다.와 같이 공손하게 말할 수 있도록 한다.
 
 ==============================
@@ -189,9 +191,14 @@ Pattern Example 분석을 생성해야 합니다.
 # 3. Helper 함수
 # -------------------------------------------------------------------------
 
-def _extract_dialogue(utterances: List[Dict], indices: List[int]) -> List[Dict]:
+def _extract_dialogue(utterances: List[Dict], indices: List[int], max_items: int = 4) -> List[Dict]:
+    """
+    주어진 utterance indices 중 앞에서부터 최대 max_items개까지만 dialogue로 추출.
+    순서는 원래 순서를 유지하며, 과도한 길이로 인해 LLM이 장문 출력하는 것을 방지.
+    """
     dialogue = []
-    for idx in sorted(indices):
+    limited_indices = sorted(indices)[:max_items]
+    for idx in limited_indices:
         if 0 <= idx < len(utterances):
             utt = utterances[idx]
             speaker = "parent" if utt.get("speaker") in ["Parent", "Mom", "Dad", "부모", "A"] else "child"
@@ -318,17 +325,29 @@ async def _key_moments_node_async(state: Dict[str, Any]) -> Dict[str, Any]:
     
     async def _generate_positive_moment() -> List[PositiveMoment]:
         """Positive Moment 생성"""
-        if not target_positive:
+
+        # 패턴이 positive인지 확인
+        if not target_positive or target_positive.get("pattern_type") != "positive":
             return []
-        
+
         try:
             llm = get_structured_llm(PositiveMomentResponse)
+
             pos_refs_json = json.dumps([r.dict() for r in pos_expert_refs], ensure_ascii=False)
-            
+
+            # pattern_type을 명시적으로 전달
+            enriched_ctx = json.dumps({
+                "pattern_name": target_positive["pattern_name"],
+                "pattern_type": "positive",
+                "description": target_positive["description"],
+                "dialogue": _extract_dialogue(utterances, target_positive["utterance_indices"])
+            }, ensure_ascii=False)
+
             result = await (_POSITIVE_MOMENT_PROMPT | llm).ainvoke({
-                "positive_context": pos_ctx,
+                "positive_context": enriched_ctx,
                 "expert_references": pos_refs_json
             })
+
             return result.positive
         except Exception as e:
             print(f"Positive moment LLM 호출 오류: {e}")
