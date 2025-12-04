@@ -91,37 +91,29 @@ _STT_CORRECTION_PROMPT = ChatPromptTemplate.from_messages([
             "- 문장이 중간에 끊기거나 단어가 합쳐짐\n"
             "- 문맥상 맞지 않는 단어나 표현\n"
             "- 문법적으로 어색한 문장 구조\n"
-            "- 발음이 비슷한 다른 단어로 대체됨\n"
-            "- 자녀 이름이 잘못 인식됨 (예: '헌성재' -> '헌성', '헌성제' 등)\n\n"
+            "- 발음이 비슷한 다른 단어로 대체됨\n\n"
             "보정 원칙:\n"
             "- 원본 텍스트의 의미와 의도를 최대한 보존\n"
             "- 문법적으로 올바르고 자연스러운 한국어로 보정\n"
             "- 부모-자녀 대화의 맥락을 고려하여 보정\n"
-            "- 이름 정규화 (필수): 자녀를 지칭하는 모든 부분(이름, 호칭 등)을 반드시 정규화해야 합니다\n"
-            "  * 자녀 이름이 제공된 경우: 모든 이름 지칭을 제공된 이름으로 통일 (예: '헌성재야', '헌성이', '헌성' -> 모두 '헌성재' 또는 '헌성재야' 등으로 통일)\n"
-            "  * 자녀 이름이 제공되지 않은 경우: 모든 이름 지칭을 'OO'로 대체 (예: '헌성재야' -> 'OO야', '훈아' -> 'OO', '지아' -> 'OO')\n"
-            "  * 이름 정규화는 STT 오류 보정과 별개로 반드시 수행해야 하며, 이름이 바뀌는 것도 보정으로 간주합니다\n"
-            "- 확실하게 오류라고 판단되는 경우만 보정 (애매한 경우는 보정하지 않음)\n"
-            "- 원본 텍스트가 이미 자연스럽고 문법적으로 올바르더라도 이름 정규화는 반드시 수행해야 합니다"
+            "- 확실하게 오류라고 판단되는 경우만 보정 (애매한 경우는 보정하지 않음)"
         ),
     ),
-    (
-        "human",
         (
-            "다음 STT로 생성된 대화 텍스트를 분석하여 오류가 있는 발화들을 보정해주세요:\n\n"
-            "{stt_dialogue}\n\n"
-            "{child_name_info}\n\n"
-            "주의사항:\n"
-            "- 각 발화의 인덱스는 0부터 시작합니다\n"
-            "- 발화의 내용을 신중히 분석하여 STT 오류를 찾으세요\n"
-            "- 이름 정규화가 필요한 발화는 반드시 corrections에 포함시켜야 합니다 (이름이 바뀌는 것도 보정으로 간주)\n"
-            "- 확실하게 오류라고 판단되는 경우만 보정하세요 (애매한 경우는 보정하지 마세요)\n"
-            "- 보정이 필요없으면 needs_correction을 false로 설정하세요\n"
-            "- 보정이 필요한 경우, corrections 배열에 각 발화의 인덱스, 원본 텍스트, 보정된 텍스트를 명시하세요\n"
-            "- 보정할 때는 반드시 정확한 인덱스를 사용하세요\n\n"
-            "분석 결과를 제공해주세요."
+            "human",
+            (
+                "다음 STT로 생성된 대화 텍스트를 분석하여 오류가 있는 발화들을 보정해주세요:\n\n"
+                "{stt_dialogue}\n\n"
+                "주의사항:\n"
+                "- 각 발화의 인덱스는 0부터 시작합니다\n"
+                "- 발화의 내용을 신중히 분석하여 STT 오류를 찾으세요\n"
+                "- 확실하게 오류라고 판단되는 경우만 보정하세요 (애매한 경우는 보정하지 마세요)\n"
+                "- 보정이 필요없으면 needs_correction을 false로 설정하세요\n"
+                "- 보정이 필요한 경우, corrections 배열에 각 발화의 인덱스, 원본 텍스트, 보정된 텍스트를 명시하세요\n"
+                "- 보정할 때는 반드시 정확한 인덱스를 사용하세요\n\n"
+                "분석 결과를 제공해주세요."
+            ),
         ),
-    ),
 ])
 
 
@@ -540,7 +532,7 @@ def _verify_and_correct_speakers(normalized: List[Dict[str, Any]], ab_mapping: D
     return normalized
 
 
-def _correct_stt_errors(utterances_ko: List[Any], is_object_list: bool, child_name: Optional[str] = None) -> List[Any]:
+def _correct_stt_errors(utterances_ko: List[Any], is_object_list: bool) -> List[Any]:
     """STT 텍스트 오류를 보정"""
     if not utterances_ko:
         return utterances_ko
@@ -564,19 +556,12 @@ def _correct_stt_errors(utterances_ko: List[Any], is_object_list: bool, child_na
         
         dialogue_str = "\n".join(dialogue_lines)
         
-        # 자녀 이름 정보 포맷팅 (시스템 프롬프트에 이미 포함되어 있으므로 간단히 안내만)
-        if child_name:
-            child_name_info = f"이 대화에서 자녀의 이름은 '{child_name}'입니다. 시스템 프롬프트의 이름 정규화 원칙에 따라 모든 이름 지칭을 '{child_name}'으로 통일해주세요."
-            print(f"DEBUG: [STT Correction] Sending {len(dialogue_lines)} utterances to LLM for STT error correction (child_name: {child_name})")
-        else:
-            child_name_info = "자녀 이름이 제공되지 않았습니다. 시스템 프롬프트의 이름 정규화 원칙에 따라 모든 이름 지칭을 'OO'로 대체해주세요."
-            print(f"DEBUG: [STT Correction] Sending {len(dialogue_lines)} utterances to LLM for STT error correction (no child_name, will use 'OO')")
+        print(f"DEBUG: [STT Correction] Sending {len(dialogue_lines)} utterances to LLM for STT error correction")
         
         # Structured LLM 사용하여 STT 오류 보정
         structured_llm = get_structured_llm(STTCorrection, mini=True)
         res = (_STT_CORRECTION_PROMPT | structured_llm).invoke({
-            "stt_dialogue": dialogue_str,
-            "child_name_info": child_name_info
+            "stt_dialogue": dialogue_str
         })
         
         # 보정 적용
@@ -664,17 +649,9 @@ def preprocess_node(state: Dict[str, Any]) -> Dict[str, Any]:
     # utterances_ko가 객체 리스트인지 문자열 리스트인지 확인
     is_object_list = bool(utterances_ko and isinstance(utterances_ko[0], dict))
     
-    # meta 정보에서 자녀 이름 추출
-    meta = state.get("meta", {})
-    child_name = None
-    if isinstance(meta, dict):
-        child_name = meta.get("child_name")
-    
     # STT 텍스트 오류 보정 (정규화 전에 수행)
     print(f"DEBUG: [STT Correction] Starting STT error correction for {len(utterances_ko)} utterances")
-    if child_name:
-        print(f"DEBUG: [STT Correction] Child name provided: {child_name}")
-    utterances_ko = _correct_stt_errors(utterances_ko, is_object_list, child_name=child_name)
+    utterances_ko = _correct_stt_errors(utterances_ko, is_object_list)
     
     # A/B 패턴과 명시적 스피커 패턴 감지
     has_ab_pattern, has_explicit_speakers = _detect_patterns(utterances_ko, is_object_list)
