@@ -25,9 +25,15 @@ _ACTION_DETECTION_PROMPT = ChatPromptTemplate.from_messages([
             "*** Important: Semantic and Polarity Check ***\n"
             "- The action description (e.g., '아이의 감정을 수용하고 긍정적으로 대화하기') often describes a clearly positive behavior.\n"
             "- **CRITICAL: Exclude CMD/NEG labeled utterances**: Utterances with label 'CMD' or 'NEG' (or any label containing 'CMD' or 'NEG') MUST be excluded from relevant_indices, regardless of their content. These labels indicate negative or controlling behaviors that should not be considered as successful action performance.\n"
+            "- **CRITICAL: Q label context check**: Utterances with label 'Q' (or any label containing 'Q') require special attention. For Q-labeled utterances:\n"
+            "  * Check the context: Look at the utterances immediately before and after (within 2-3 utterances) the Q-labeled utterance.\n"
+            "  * Include ONLY if the context is positive: The Q-labeled utterance should be part of a positive interaction (e.g., genuine curiosity, supportive questioning, empathetic inquiry).\n"
+            "  * Exclude if context is negative: If the surrounding context shows negative patterns (e.g., interrogation, criticism, scolding, dismissive questioning, or the child's responses indicate distress/defensiveness), exclude the Q-labeled utterance from relevant_indices.\n"
+            "  * Examples of negative Q contexts to exclude: Questions that are part of a scolding sequence, questions that dismiss the child's feelings, questions that are clearly controlling or manipulative.\n"
+            "  * Examples of positive Q contexts to include: Questions that show genuine interest in the child's feelings, questions that validate emotions, questions that are supportive and empathetic.\n"
             "- **Exclude clearly negative utterances**: Do NOT mark utterances as relevant if they are unambiguously criticizing, scolding, dismissing emotions, or controlling in a negative way (e.g., \"왜 이렇게 화가 나냐고 도대체 몰라\", \"예쁘게 말해\" - these are clearly negative).\n"
             "- **Include neutral or positive utterances**: If an utterance is neutral, supportive, or shows any attempt at the positive behavior (even if imperfect), mark it as relevant.\n"
-            "- **Default to inclusion**: If the utterance is not clearly negative (i.e., \"누가봐도 부정적인 것이 아니라면\") and does NOT have CMD/NEG label, include it as a successful action performance.\n"
+            "- **Default to inclusion**: If the utterance is not clearly negative (i.e., \"누가봐도 부정적인 것이 아니라면\") and does NOT have CMD/NEG label, and if it has Q label, the context is positive, include it as a successful action performance.\n"
             "- A relevant utterance should show the parent performing or attempting the positive behavior described in the action (e.g., accepting feelings, validating emotions, speaking calmly and supportively, asking about feelings, etc.)."
         ),
     ),
@@ -40,9 +46,12 @@ _ACTION_DETECTION_PROMPT = ChatPromptTemplate.from_messages([
             "Identify parent utterances that demonstrate the action. "
             "Avoid duplicates: if multiple utterances express the same action, select only the most representative one.\n"
             "**CRITICAL**: MUST exclude utterances with label 'CMD' or 'NEG' (or any label containing 'CMD' or 'NEG') from relevant_indices.\n"
+            "**CRITICAL for Q-labeled utterances**: For utterances with label 'Q' (or containing 'Q'), you MUST check the surrounding context (2-3 utterances before and after). "
+            "Include the Q-labeled utterance ONLY if the context shows a positive interaction (genuine curiosity, supportive questioning, empathetic inquiry). "
+            "Exclude it if the context shows negative patterns (interrogation, criticism, scolding, dismissive questioning, or child's distress/defensiveness).\n"
             "**Important**: Only exclude utterances that are clearly negative (criticizing, scolding, dismissing). "
             "If an utterance is neutral or shows any positive attempt, include it. "
-            "When the utterance is not clearly negative (\"누가봐도 부정적인 것이 아니라면\") and does NOT have CMD/NEG label, mark it as relevant. "
+            "When the utterance is not clearly negative (\"누가봐도 부정적인 것이 아니라면\") and does NOT have CMD/NEG label, and if it has Q label, the context is positive, mark it as relevant. "
             "Return JSON with relevant_indices only."
         ),
     ),
