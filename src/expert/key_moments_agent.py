@@ -86,16 +86,40 @@ _POSITIVE_MOMENT_PROMPT = ChatPromptTemplate.from_messages([
 Positive Moment 분석을 생성해야 합니다.
 
 ==============================
-📌 Positive Moment 규칙
+📌 Positive Moment 규칙 (매우 중요)
 ==============================
 - positive_context.pattern_type 이 'positive'일 때만 positive moment를 생성할 수 있습니다.
 - pattern_type이 'positive'가 아니라면, 반드시 빈 배열 []을 반환하세요.
-- positive_context의 pattern과 dialogue만 사용
-- 전문가 조언 excerpt 1개를 reason에 자연스럽게 섞어 쓰기
-- reference_descriptions는 최대 2개
-- reason: 전문가 excerpt와 대화의 맥락과 상황을 파악하여 2~4 줄 정도로 길고 전문가가 말하듯이 구체적으로 작성
-- tone은 따뜻하고 전문적이지만, ~~합니다.와 같이 공손하게 말할 수 있도록 한다.
-- positive한 순간이 없다면 빈배열 반환
+
+*** [중요] Dialogue 내용 엄격 검증 ***
+1. **화자 확인 필수**: dialogue 배열의 각 발화에서 'speaker' 필드를 정확히 확인하세요.
+   - 'parent' 또는 'child' 중 누가 말했는지 정확히 파악해야 합니다.
+   - reason을 작성할 때 화자를 잘못 해석하지 마세요.
+   - 예: dialogue에서 "child"가 말한 내용을 "parent"가 말한 것처럼 설명하면 안 됩니다.
+
+2. **실제 내용 검증 필수**: 
+   - dialogue의 실제 텍스트 내용을 정확히 읽고 분석하세요.
+   - 패턴 이름이 '구체적 칭찬'이라고 해도, 실제 dialogue에서 부모가 구체적으로 칭찬하고 있는지 확인하세요.
+   - dialogue 내용이 불분명하거나, 실제로 positive한 행동이 명확하지 않다면 빈 배열 []을 반환하세요.
+
+3. **억지로 만들지 말 것**:
+   - dialogue 내용이 실제로 positive moment를 보여주지 않는다면, 억지로 해석하지 마세요.
+   - 패턴이 탐지되었다고 해서 무조건 positive moment를 만들 필요는 없습니다.
+   - 실제로 긍정적인 상호작용이 명확하게 드러나는 경우에만 positive moment를 생성하세요.
+   - 애매하거나 불분명한 경우에는 반드시 빈 배열 []을 반환하세요.
+
+4. **구체적 칭찬 패턴의 경우**:
+   - 부모가 실제로 아이의 구체적인 행동이나 노력을 칭찬하고 있어야 합니다.
+   - 단순히 긍정적인 단어만 사용했다고 해서 구체적 칭찬이 아닙니다.
+   - 예: "잘했어"만으로는 부족하고, "무엇을" 잘했는지 구체적으로 언급되어야 합니다.
+
+5. **reason 작성 시**:
+   - dialogue의 실제 내용을 바탕으로 작성하세요.
+   - 화자가 누구인지 정확히 파악한 후 작성하세요.
+   - 전문가 excerpt 1개를 자연스럽게 섞어 쓰기
+   - reference_descriptions는 최대 2개
+   - 전문가 excerpt와 대화의 맥락과 상황을 파악하여 2~4 줄 정도로 길고 전문가가 말하듯이 구체적으로 작성
+   - tone은 따뜻하고 전문적이지만, ~~합니다.와 같이 공손하게 말할 수 있도록 한다.
 
 ==============================
 📌 입력 데이터
@@ -107,11 +131,12 @@ Positive Moment 분석을 생성해야 합니다.
 {expert_references}
 
 위 정보를 바탕으로 positive moment를 생성하십시오.
+*** 중요: dialogue의 실제 내용과 화자를 정확히 확인하고, 실제로 positive한 순간이 명확한 경우에만 생성하세요. 애매하거나 불분명하면 빈 배열 []을 반환하세요. ***
 """
     ),
     (
         "human",
-        "위 내용을 반영하여 positive moment를 생성하세요."
+        "위 내용을 반영하여 positive moment를 생성하세요. dialogue의 실제 내용과 화자를 정확히 확인하고, 실제로 positive한 순간이 명확한 경우에만 생성하세요. 애매하거나 불분명하면 빈 배열 []을 반환하세요."
     ),
 ])
 
@@ -330,6 +355,40 @@ async def _key_moments_node_async(state: Dict[str, Any]) -> Dict[str, Any]:
         if not target_positive or target_positive.get("pattern_type") != "positive":
             return []
 
+        # Dialogue 내용 사전 검증: 실제로 positive한 내용인지 확인
+        dialogue_dicts = _extract_dialogue(utterances, target_positive["utterance_indices"])
+        
+        # 부모 발화가 실제로 positive한 내용인지 간단히 확인
+        # 구체적 칭찬 패턴의 경우, 부모가 실제로 칭찬하고 있는지 확인
+        pattern_name = target_positive.get("pattern_name", "")
+        has_parent_positive_utterance = False
+        
+        for d in dialogue_dicts:
+            speaker = d.get("speaker", "").lower()
+            text = d.get("text", "").strip()
+            
+            # 부모 발화인 경우
+            if speaker == "parent":
+                # 구체적 칭찬 패턴의 경우, 실제로 칭찬하는 내용이 있는지 확인
+                if "칭찬" in pattern_name or "praise" in pattern_name.lower():
+                    # 부정적인 단어가 포함되어 있으면 제외
+                    negative_keywords = ["화가 나", "몰라", "잘못", "안 그럴게", "예쁘게 말해"]
+                    if any(keyword in text for keyword in negative_keywords):
+                        continue
+                    # 긍정적인 칭찬 표현이 있는지 확인
+                    positive_keywords = ["잘했", "훌륭", "좋", "대단", "멋있", "칭찬"]
+                    if any(keyword in text for keyword in positive_keywords):
+                        has_parent_positive_utterance = True
+                        break
+                else:
+                    # 다른 positive 패턴의 경우, 부모 발화가 있으면 일단 통과
+                    has_parent_positive_utterance = True
+                    break
+        
+        # 부모의 positive한 발화가 없거나, dialogue가 비어있으면 빈 배열 반환
+        if not dialogue_dicts or (not has_parent_positive_utterance and "칭찬" in pattern_name):
+            return []
+
         try:
             llm = get_structured_llm(PositiveMomentResponse)
 
@@ -340,7 +399,7 @@ async def _key_moments_node_async(state: Dict[str, Any]) -> Dict[str, Any]:
                 "pattern_name": target_positive["pattern_name"],
                 "pattern_type": "positive",
                 "description": target_positive["description"],
-                "dialogue": _extract_dialogue(utterances, target_positive["utterance_indices"])
+                "dialogue": dialogue_dicts
             }, ensure_ascii=False)
 
             result = await (_POSITIVE_MOMENT_PROMPT | llm).ainvoke({
@@ -348,6 +407,12 @@ async def _key_moments_node_async(state: Dict[str, Any]) -> Dict[str, Any]:
                 "expert_references": pos_refs_json
             })
 
+            # LLM 결과도 검증: 빈 배열이거나, dialogue 내용과 맞지 않으면 빈 배열 반환
+            if not result.positive or len(result.positive) == 0:
+                return []
+            
+            # 첫 번째 positive moment의 dialogue와 실제 dialogue 비교
+            # (LLM이 잘못 해석했을 수 있으므로)
             return result.positive
         except Exception as e:
             print(f"Positive moment LLM 호출 오류: {e}")
