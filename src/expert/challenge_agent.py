@@ -21,7 +21,13 @@ _ACTION_DETECTION_PROMPT = ChatPromptTemplate.from_messages([
             "- If multiple utterances express the same action with similar wording or meaning, select only ONE representative utterance (preferably the first or most clear one).\n"
             "- If utterances are very close in sequence (within 2-3 utterances) and express the same action, select only ONE.\n"
             "- Only include distinct instances where the action is clearly performed in a meaningfully different context or moment.\n"
-            "- Focus on quality over quantity: it's better to return fewer, distinct instances than many similar ones."
+            "- Focus on quality over quantity: it's better to return fewer, distinct instances than many similar ones.\n\n"
+            "*** Important: Semantic and Polarity Check ***\n"
+            "- The action description (e.g., '아이의 감정을 수용하고 긍정적으로 대화하기') often describes a clearly positive behavior.\n"
+            "- **Exclude ONLY clearly negative utterances**: Do NOT mark utterances as relevant ONLY if they are unambiguously criticizing, scolding, dismissing emotions, or controlling in a negative way (e.g., \"왜 이렇게 화가 나냐고 도대체 몰라\", \"예쁘게 말해\" - these are clearly negative).\n"
+            "- **Include neutral or positive utterances**: If an utterance is neutral, supportive, or shows any attempt at the positive behavior (even if imperfect), mark it as relevant.\n"
+            "- **Default to inclusion**: If the utterance is not clearly negative (i.e., \"누가봐도 부정적인 것이 아니라면\"), include it as a successful action performance.\n"
+            "- A relevant utterance should show the parent performing or attempting the positive behavior described in the action (e.g., accepting feelings, validating emotions, speaking calmly and supportively, asking about feelings, etc.)."
         ),
     ),
     (
@@ -31,7 +37,10 @@ _ACTION_DETECTION_PROMPT = ChatPromptTemplate.from_messages([
             "Challenge context:\n{challenge_name}\n\n"
             "All utterances (with index):\n{utterances_with_index}\n\n"
             "Identify parent utterances that demonstrate the action. "
-            "Avoid duplicates: if multiple utterances express the same action, select only the most representative one. "
+            "Avoid duplicates: if multiple utterances express the same action, select only the most representative one.\n"
+            "**Important**: Only exclude utterances that are clearly negative (criticizing, scolding, dismissing). "
+            "If an utterance is neutral or shows any positive attempt, include it. "
+            "When the utterance is not clearly negative (\"누가봐도 부정적인 것이 아니라면\"), mark it as relevant. "
             "Return JSON with relevant_indices only."
         ),
     ),
@@ -42,11 +51,12 @@ _SUMMARY_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
         "system",
         (
             "You are an expert analyzing parent-child interactions. "
-            "Using ONLY the dialogue content provided, generate a brief summary (in Korean) describing the situation where the parent performed the specific action. "
-            "The summary should be concise (1-2 sentences) and describe what actually happened in this interaction moment based on the dialogue.\n"
+            "Using ONLY the dialogue content provided, generate a brief summary (in Korean) describing what actually happened in this interaction moment.\n"
             "- The summary MUST be grounded in the 'Dialogue context' utterances, not in the action description text.\n"
             "- If you quote what the parent said, you MUST copy the exact Korean utterance from the dialogue context (e.g., 부모: ...), without changing or inventing new wording.\n"
-            "- DO NOT assume or fabricate that the parent said the example phrase from 'Action performed' unless the exact same wording appears in the dialogue.\n"
+            "- **Describe accurately**: If the parent's utterance shows the positive action (e.g., accepting feelings, validating emotions, speaking supportively), describe it positively.\n"
+            "- **Only mention negatives if clearly present**: If the dialogue shows clear criticism, scolding, or emotion dismissing, mention it. But if the utterance is neutral or positive, describe it as such.\n"
+            "- **Mixed utterances**: If the parent's utterance is mixed (부분적으로 수용, 부분적으로 비판), reflect this nuance honestly (e.g., 감정을 일부 이해하려 했으나, 동시에 지적하거나 통제하는 표현도 사용했습니다).\n"
             "- Prefer to include at least one short direct quote from the parent's utterance in quotation marks, taken verbatim from the dialogue context.\n"
             "The Korean summary MUST be written in polite formal speech (존댓말, e.g., '~합니다', '~합니다.'). "
             "Return ONLY the summary text, no extra explanation."
