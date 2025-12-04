@@ -24,9 +24,10 @@ _ACTION_DETECTION_PROMPT = ChatPromptTemplate.from_messages([
             "- Focus on quality over quantity: it's better to return fewer, distinct instances than many similar ones.\n\n"
             "*** Important: Semantic and Polarity Check ***\n"
             "- The action description (e.g., '아이의 감정을 수용하고 긍정적으로 대화하기') often describes a clearly positive behavior.\n"
-            "- **Exclude ONLY clearly negative utterances**: Do NOT mark utterances as relevant ONLY if they are unambiguously criticizing, scolding, dismissing emotions, or controlling in a negative way (e.g., \"왜 이렇게 화가 나냐고 도대체 몰라\", \"예쁘게 말해\" - these are clearly negative).\n"
+            "- **CRITICAL: Exclude CMD/NEG labeled utterances**: Utterances with label 'CMD' or 'NEG' (or any label containing 'CMD' or 'NEG') MUST be excluded from relevant_indices, regardless of their content. These labels indicate negative or controlling behaviors that should not be considered as successful action performance.\n"
+            "- **Exclude clearly negative utterances**: Do NOT mark utterances as relevant if they are unambiguously criticizing, scolding, dismissing emotions, or controlling in a negative way (e.g., \"왜 이렇게 화가 나냐고 도대체 몰라\", \"예쁘게 말해\" - these are clearly negative).\n"
             "- **Include neutral or positive utterances**: If an utterance is neutral, supportive, or shows any attempt at the positive behavior (even if imperfect), mark it as relevant.\n"
-            "- **Default to inclusion**: If the utterance is not clearly negative (i.e., \"누가봐도 부정적인 것이 아니라면\"), include it as a successful action performance.\n"
+            "- **Default to inclusion**: If the utterance is not clearly negative (i.e., \"누가봐도 부정적인 것이 아니라면\") and does NOT have CMD/NEG label, include it as a successful action performance.\n"
             "- A relevant utterance should show the parent performing or attempting the positive behavior described in the action (e.g., accepting feelings, validating emotions, speaking calmly and supportively, asking about feelings, etc.)."
         ),
     ),
@@ -38,9 +39,10 @@ _ACTION_DETECTION_PROMPT = ChatPromptTemplate.from_messages([
             "All utterances (with index):\n{utterances_with_index}\n\n"
             "Identify parent utterances that demonstrate the action. "
             "Avoid duplicates: if multiple utterances express the same action, select only the most representative one.\n"
+            "**CRITICAL**: MUST exclude utterances with label 'CMD' or 'NEG' (or any label containing 'CMD' or 'NEG') from relevant_indices.\n"
             "**Important**: Only exclude utterances that are clearly negative (criticizing, scolding, dismissing). "
             "If an utterance is neutral or shows any positive attempt, include it. "
-            "When the utterance is not clearly negative (\"누가봐도 부정적인 것이 아니라면\"), mark it as relevant. "
+            "When the utterance is not clearly negative (\"누가봐도 부정적인 것이 아니라면\") and does NOT have CMD/NEG label, mark it as relevant. "
             "Return JSON with relevant_indices only."
         ),
     ),
@@ -273,7 +275,21 @@ def _find_relevant_utterances_with_llm(
                     int(idx) for idx in relevant_indices 
                     if isinstance(idx, (int, str)) and str(idx).isdigit() and 0 <= int(idx) < len(utterances)
                 ]
-                return valid_indices
+                
+                # CMD/NEG 라벨이 있는 발화 필터링 (코드 레벨 가드레일)
+                filtered_indices = []
+                for idx in valid_indices:
+                    if 0 <= idx < len(utterances):
+                        utt = utterances[idx]
+                        if isinstance(utt, dict):
+                            label = str(utt.get("label", "")).upper()
+                            # CMD나 NEG가 포함된 라벨은 제외
+                            if "CMD" in label or "NEG" in label:
+                                print(f"DEBUG: [Action Detection] Excluding utterance [{idx}] with label '{label}' (CMD/NEG filter)")
+                                continue
+                    filtered_indices.append(idx)
+                
+                return filtered_indices
     except Exception as e:
         print(f"Action detection LLM error: {e}")
     
