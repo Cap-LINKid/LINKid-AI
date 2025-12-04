@@ -328,25 +328,27 @@ def _evaluate_action(
         if current_group:
             deduplicated_indices.append(current_group[0][0])
     
-    # 최대 10개로 제한
-    deduplicated_indices = deduplicated_indices[:10]
+    # action당 하나의 instance만 선택 (첫 번째 것)
+    if not deduplicated_indices:
+        return None
     
-    # instances 생성 (순환 참조 방지를 위해 모든 값을 기본 타입으로 변환)
-    instances = []
-    for idx in deduplicated_indices:
-        timestamp = _find_utterance_timestamp(utterances, idx)
-        summary = _create_situation_summary(utterances, idx, action_content, challenge_name)
-        
-        instances.append({
-            "timestamp": str(timestamp),
-            "summary": str(summary)
-        })
+    # 첫 번째 인덱스만 사용
+    selected_idx = deduplicated_indices[0]
+    
+    # instance 생성 (순환 참조 방지를 위해 모든 값을 기본 타입으로 변환)
+    timestamp = _find_utterance_timestamp(utterances, selected_idx)
+    summary = _create_situation_summary(utterances, selected_idx, action_content, challenge_name)
+    
+    instances = [{
+        "timestamp": str(timestamp),
+        "summary": str(summary)
+    }]
     
     # challenge_evaluation 반환 (순환 참조 방지를 위해 모든 값을 기본 타입으로 변환)
     return {
         "challenge_name": str(challenge_name),
         "action_id": int(action_id),
-        "detected_count": int(len(deduplicated_indices)),
+        "detected_count": 1,  # instance가 하나이므로 항상 1
         "description": str(action_content),
         "instances": instances
     }
