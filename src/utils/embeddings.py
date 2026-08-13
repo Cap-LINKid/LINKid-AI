@@ -27,6 +27,19 @@ def get_embedding_model():
             model=model_name,
             openai_api_key=api_key
         )
+
+    elif provider == "openrouter":
+        from langchain_openai import OpenAIEmbeddings
+
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY 환경 변수가 설정되지 않았습니다.")
+
+        return OpenAIEmbeddings(
+            model=model_name,
+            api_key=api_key,
+            base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+        )
     
     elif provider == "anthropic":
         # Anthropic은 embedding 모델이 없으므로 OpenAI 사용 권장
@@ -128,4 +141,3 @@ def embed_query(query: str) -> List[float]:
     """
     embedding_model = get_embedding_model()
     return embedding_model.embed_query(query)
-

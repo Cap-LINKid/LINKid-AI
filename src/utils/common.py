@@ -11,7 +11,7 @@ load_dotenv()
 
 def _get_provider() -> str:
     provider = os.getenv("MODEL_PROVIDER", "openai").lower()
-    if provider not in {"openai", "anthropic", "google", "ollama"}:
+    if provider not in {"openai", "openrouter", "anthropic", "google", "ollama"}:
         return "openai"
     return provider
 
@@ -36,6 +36,21 @@ def get_llm(mini: bool = False) -> Any:
         from langchain_openai import ChatOpenAI
 
         return ChatOpenAI(model=model_name, temperature=0)
+    if provider == "openrouter":
+        from langchain_openai import ChatOpenAI
+
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY 환경 변수가 설정되지 않았습니다.")
+
+        return ChatOpenAI(
+            model=model_name,
+            temperature=0,
+            api_key=api_key,
+            base_url=base_url,
+        )
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
 
