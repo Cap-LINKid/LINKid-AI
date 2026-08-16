@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import time
+import uuid
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -17,12 +19,50 @@ from src.api.status import (
     NodeStatus
 )
 from src.router.router import build_question_router
+from src.utils.observability import get_logger
+
+
+logger = get_logger(__name__)
 
 app = FastAPI(
     title="LinkID AI API",
     description="부모-아이 대화 분석 API",
     version="1.0.0"
 )
+
+
+@app.middleware("http")
+async def log_request(request: Request, call_next):
+    """Log request metadata only; dialogue payloads must never reach logs."""
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    started_at = time.perf_counter()
+
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        logger.error(
+            "http.request.failed",
+            extra={
+                "event": "http.request.failed",
+                "request_id": request_id,
+                "duration_ms": round((time.perf_counter() - started_at) * 1000),
+                "error_type": type(exc).__name__,
+            },
+        )
+        raise
+
+    response.headers["X-Request-ID"] = request_id
+    logger.info(
+        "http.request.completed",
+        extra={
+            "event": "http.request.completed",
+            "request_id": request_id,
+            "status_code": response.status_code,
+            "duration_ms": round((time.perf_counter() - started_at) * 1000),
+        },
+    )
+    return response
 
 
 @app.exception_handler(RequestValidationError)
@@ -82,8 +122,13 @@ class ExecutionResponse(BaseModel):
     progress_percentage: Optional[int] = None
 
 
-def _run_analysis_with_status(execution_id: str, state: Dict[str, Any]):
+def _run_analysis_with_status(execution_id: str, state: Dict[str, Any], request_id: str):
     """상태 추적하며 분석 실행"""
+    started_at = time.perf_counter()
+    logger.info(
+        "analysis.started",
+        extra={"event": "analysis.started", "execution_id": execution_id, "request_id": request_id},
+    )
     try:
         update_execution_status(execution_id, ExecutionStatus.RUNNING)
         
@@ -113,6 +158,15 @@ def _run_analysis_with_status(execution_id: str, state: Dict[str, Any]):
                             if node_name in sequential_nodes + parallel_nodes + ["aggregate_result"]:
                                 # 노드 완료 표시
                                 update_node_status(execution_id, node_name, NodeStatus.COMPLETED)
+                                logger.info(
+                                    "analysis.node.completed",
+                                    extra={
+                                        "event": "analysis.node.completed",
+                                        "execution_id": execution_id,
+                                        "request_id": request_id,
+                                        "node": node_name,
+                                    },
+                                )
                                 
                                 # 다음 노드를 running으로 표시
                                 if node_name in sequential_nodes:
@@ -150,7 +204,15 @@ def _run_analysis_with_status(execution_id: str, state: Dict[str, Any]):
                 
         except Exception as stream_error:
             # 스트리밍 실패 시 일반 invoke 사용
-            print(f"Streaming failed, using invoke: {stream_error}")
+            logger.warning(
+                "analysis.streaming_failed",
+                extra={
+                    "event": "analysis.streaming_failed",
+                    "execution_id": execution_id,
+                    "request_id": request_id,
+                    "error_type": type(stream_error).__name__,
+                },
+            )
             try:
                 result = graph.invoke(state)
                 final_result = result.get("result")
@@ -161,16 +223,55 @@ def _run_analysis_with_status(execution_id: str, state: Dict[str, Any]):
                     update_node_status(execution_id, node_name, NodeStatus.COMPLETED)
             except Exception as invoke_error:
                 update_execution_status(execution_id, ExecutionStatus.FAILED, error=str(invoke_error))
+                logger.error(
+                    "analysis.failed",
+                    extra={
+                        "event": "analysis.failed",
+                        "execution_id": execution_id,
+                        "request_id": request_id,
+                        "duration_ms": round((time.perf_counter() - started_at) * 1000),
+                        "error_type": type(invoke_error).__name__,
+                    },
+                )
                 return
         
         # 완료
         if final_result:
             update_execution_status(execution_id, ExecutionStatus.COMPLETED, result=final_result)
+            logger.info(
+                "analysis.completed",
+                extra={
+                    "event": "analysis.completed",
+                    "execution_id": execution_id,
+                    "request_id": request_id,
+                    "duration_ms": round((time.perf_counter() - started_at) * 1000),
+                },
+            )
         else:
             update_execution_status(execution_id, ExecutionStatus.FAILED, error="No result returned")
+            logger.error(
+                "analysis.failed",
+                extra={
+                    "event": "analysis.failed",
+                    "execution_id": execution_id,
+                    "request_id": request_id,
+                    "duration_ms": round((time.perf_counter() - started_at) * 1000),
+                    "error_type": "EmptyResult",
+                },
+            )
             
     except Exception as e:
         update_execution_status(execution_id, ExecutionStatus.FAILED, error=str(e))
+        logger.error(
+            "analysis.failed",
+            extra={
+                "event": "analysis.failed",
+                "execution_id": execution_id,
+                "request_id": request_id,
+                "duration_ms": round((time.perf_counter() - started_at) * 1000),
+                "error_type": type(e).__name__,
+            },
+        )
 
 
 @app.post("/analyze", response_model=ExecutionResponse)
@@ -219,9 +320,14 @@ async def analyze_dialogue(request: DialogueRequest, background_tasks: Backgroun
     
     execution_id = create_execution(state)
     update_execution_status(execution_id, ExecutionStatus.RUNNING)
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.info(
+        "analysis.queued",
+        extra={"event": "analysis.queued", "execution_id": execution_id, "request_id": request_id},
+    )
     
     # 백그라운드에서 실행
-    background_tasks.add_task(_run_analysis_with_status, execution_id, state)
+    background_tasks.add_task(_run_analysis_with_status, execution_id, state, request_id)
     
     # 초기 상태 정보 가져오기
     status_info = get_execution_status(execution_id)
@@ -273,4 +379,3 @@ async def root():
             "executions": "GET /executions"
         }
     }
-

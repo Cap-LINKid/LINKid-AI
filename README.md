@@ -633,7 +633,8 @@ gunicorn src.api.main:app \
 
 ### 모니터링
 - API 엔드포인트: `/status/{execution_id}`로 실행 상태 추적
-- 로그: 각 노드의 실행 로그 확인
+- 로그: 표준 출력에 JSON으로 기록됩니다. `X-Request-ID` 응답 헤더와 `execution_id`로 요청·분석·노드 완료·처리 시간을 연결할 수 있습니다.
+- 설정: `LOG_LEVEL=INFO`(기본값)를 `DEBUG`, `WARNING` 등으로 조정할 수 있습니다. 대화 본문과 LLM 프롬프트는 API 로그에 기록하지 않습니다.
 - 에러 처리: 실패한 실행은 `status: "failed"` 및 `error` 필드에 상세 정보 포함
 
 ---
