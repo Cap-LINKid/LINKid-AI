@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Dict, Any, List, Optional
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -117,6 +118,8 @@ _KEY_MOMENTS_PROMPT = ChatPromptTemplate.from_messages([
             "상황을 명확히 묘사하세요 (예: \"아이가 떼를 부릴 때\", \"부모가 비판적으로 반응할 때\" 등).\n"
             "- 'better_response': 위 대화 내용을 바탕으로, 부모가 실제로 어떤 말과 태도로 바꾸어 말해야 하는지에 대한 구체적인 예시. "
             "가능한 한 **구체적인 예시 문장**과 **상황 설명**을 포함하여 작성하세요.\n\n"
+            "- better_response에 대화 예시를 넣을 때 화자 표기는 반드시 '부모:'와 '아이:'를 사용하세요. "
+            "parent:, child:, mom:, chi: 같은 영문 표기는 사용하지 마세요.\n\n"
             "모든 서술(설명, reason, better_response, problem_explanation 등)은 "
             "반말이 아닌 **존댓말(예: \"~합니다\", \"~합니다.\")** 체로 공손하게 작성하세요.\n\n"
             "'pattern_examples'의 경우, 감지된 패턴 이름, 발생 횟수, 문제/강점 설명, 제안된 응답 예시(있다면)를 포함하세요. "
@@ -160,7 +163,7 @@ _IMPROVE_NEEDS_IMPROVEMENT_PROMPT = ChatPromptTemplate.from_messages([
             "2. 전문가 조언의 구체적인 문장, 원칙, 설명을 그대로 인용하거나 요약하여 'reason'에 반영하세요.\n"
             "3. 'better_response'는 전문가 조언에서 제시한 방법을 실제 대화 상황에 적용한 구체적인 예시로 작성하세요.\n"
             "4. 모든 서술은 반말이 아닌 **존댓말(예: \"~합니다\", \"~합니다.\")** 체로 공손하게 작성하세요.\n"
-            "5. 한국어로 작성하세요."
+            "5. 한국어로 작성하세요. 대화 예시의 화자 표기는 반드시 '부모:'와 '아이:'를 사용하세요."
         ),
     ),
     (
@@ -273,6 +276,13 @@ def _map_dialogue_to_ko(
 
         mapped.append({"speaker": utt.speaker, "text": matched_text})
     return mapped
+
+
+def _normalize_dialogue_speaker_labels(text: str) -> str:
+    """Use Korean speaker labels in generated alternative dialogue examples."""
+    normalized = str(text or "")
+    normalized = re.sub(r"(?im)^(?:parent|mom|mother|father)\s*:", "부모:", normalized)
+    return re.sub(r"(?im)^(?:child|chi|kid|son|daughter)\s*:", "아이:", normalized)
 
 
 def _create_search_query_from_moment(
@@ -559,6 +569,7 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 traceback.print_exc()
                 # 오류 시 초기값 사용
         
+        improved_better_response = _normalize_dialogue_speaker_labels(improved_better_response)
         needs_improvement_list.append({
             "dialogue": dialogue_with_ko,
             "reason": improved_reason,
