@@ -6,7 +6,7 @@ from typing import Dict, Any, List
 from src.utils.dpics import label_lines_dpics_llm
 
 # ELECTRA 모델 사용 여부 (환경 변수로 제어 가능)
-USE_ELECTRA = os.getenv("USE_DPICS_ELECTRA", "true").lower() == "true"
+USE_ELECTRA = os.getenv("USE_DPICS_ELECTRA", "false").lower() == "true"
 
 try:
     from src.utils.dpics_electra import label_lines_dpics_electra
@@ -163,4 +163,3 @@ def label_utterances_node(state: Dict[str, Any]) -> Dict[str, Any]:
             })
     
     return {"utterances_labeled": utterances_labeled}
-

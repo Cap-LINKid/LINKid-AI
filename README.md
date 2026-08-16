@@ -586,14 +586,20 @@ docker build -t linkid-ai:latest .
 ```
 
 #### 2. Docker Compose 사용 (권장)
+`docker-compose.yml`은 pgvector PostgreSQL과 API를 함께 실행합니다. `.env.example`을 `.env`로 복사한 뒤, 최소한 `OPENROUTER_API_KEY`와 `POSTGRES_PASSWORD`를 설정하세요. Compose에서는 `POSTGRES_HOST`가 `postgres` 서비스로 자동 설정됩니다.
+
 ```bash
-docker-compose up -d
+cp .env.example .env
+docker compose up --build -d
+# 전문가 조언 데이터를 인덱싱
+docker compose exec langgraph-api python scripts/build_vector_index.py
 ```
 
-#### 3. 환경 변수 파일 설정
-`.env` 파일을 생성하고 필요한 환경 변수를 설정하세요.
+`postgres-data`와 `execution-data` named volume은 각각 벡터 DB와 실행 상태를 유지합니다. 초기화 SQL은 새 PostgreSQL 볼륨을 만들 때만 자동 실행됩니다.
 
-#### 4. 컨테이너 실행
+#### 3. API 컨테이너만 실행
+외부 PostgreSQL을 사용할 때는 `POSTGRES_HOST` 등 DB 변수를 해당 인스턴스에 맞춘 후 다음과 같이 실행합니다.
+
 ```bash
 docker run --rm \
   --env-file .env \
@@ -615,6 +621,8 @@ docker run --rm \
 - 스키마 생성 및 벡터 인덱스 구축
 
 #### 3. 서버 실행
+`gunicorn`은 기본 의존성에 포함되어 있습니다.
+
 ```bash
 # Gunicorn 사용 (권장)
 gunicorn src.api.main:app \

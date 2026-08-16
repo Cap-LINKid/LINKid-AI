@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-linkid_ai}
+      POSTGRES_USER: ${POSTGRES_USER:-linkid_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./data/sql/vector_db_schema.sql:/docker-entrypoint-initdb.d/01-vector-db-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   langgraph-api:
     # 로컬에서 빌드해서 linkd-ai 네임스페이스 이미지로 태깅
     build:
@@ -9,6 +25,9 @@ services:
     # .env 파일 주입
     env_file:
       - .env
+
+    environment:
+      POSTGRES_HOST: postgres
 
     # 필요하면 개별 환경변수도 여기서 오버라이드 가능
     # environment:
@@ -21,14 +40,23 @@ services:
     volumes:
       - ./data:/app/data
       - ./models:/app/models
+      - execution-data:/app/runtime
+
+    depends_on:
+      postgres:
+        condition: service_healthy
 
     # 컨테이너가 죽으면 자동 재시작
     restart: unless-stopped
 
     # (선택) healthcheck – FastAPI가 살아있는지 확인
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]  # 라우트에 맞게 수정 가능
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+volumes:
+  postgres-data:
+  execution-data:

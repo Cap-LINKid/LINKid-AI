@@ -24,6 +24,10 @@ langchain-postgres>=0.0.6  # LangChain PGVector integration
 # FastAPI
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
+gunicorn>=21.2.0
 
-# Storage (optional - Redis 사용 시)
+# Optional integrations (install when the corresponding provider is enabled)
+# DPICS ELECTRA: pip install transformers torch
+# Local embeddings: pip install sentence-transformers
+# Redis execution storage:
 # redis>=5.0.0

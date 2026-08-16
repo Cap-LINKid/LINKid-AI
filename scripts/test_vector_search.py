@@ -19,7 +19,6 @@ sys.path.insert(0, str(project_root))
 
 from dotenv import load_dotenv
 import psycopg2
-import numpy as np
 
 from src.utils.embeddings import embed_query
 from src.utils.vector_store import get_postgres_connection_string, search_expert_advice
@@ -289,4 +288,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
