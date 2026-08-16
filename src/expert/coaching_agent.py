@@ -75,6 +75,7 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "1) 챌린지는 **가장 빈번하고 중요한 부정적 패턴**을 중심으로 만들 것.\n"
             "2) actions는 일반적으로 재사용 가능한 실행 원칙으로 작성합니다. 각 action은 한국어 한 문장, 20~70자입니다.\n"
             "   - 특정 아이·부모·물건·놀이·사건·원문 인용·시간을 언급하지 마세요.\n"
+            "   - 아이를 지칭할 때는 반드시 '아이'라고만 쓰고, '상대', '상대방', '자녀', '아동' 같은 표현은 쓰지 마세요.\n"
             "   - 대화 사례, 긴 설명, 근거, 여러 단계, 조건문을 action에 넣지 마세요.\n"
             "   - 예: '아이의 거절을 인정한 뒤 선택 가능한 두 가지를 제안합니다.'\n"
             "3) summary는 챌린지를 선택한 패턴과 개선 방향만 최대 2문장으로 요약합니다. 실제 대화 인용은 넣지 마세요.\n"
@@ -111,6 +112,15 @@ def _shorten_challenge_action(action: Any) -> str:
     text = re.sub(r"\s+", " ", str(action or "")).strip()
     if not text:
         return ""
+
+    child_references = {
+        "상대방": "아이",
+        "상대": "아이",
+        "자녀": "아이",
+        "아동": "아이",
+    }
+    for source, replacement in child_references.items():
+        text = text.replace(source, replacement)
 
     first_sentence = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)[0]
     if len(first_sentence) <= _MAX_CHALLENGE_ACTION_CHARS:
