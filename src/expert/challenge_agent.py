@@ -18,6 +18,8 @@ _ACTION_DETECTION_PROMPT = ChatPromptTemplate.from_messages([
             + "\n\n"
             "You are an expert analyzing parent-child interactions. "
             "Analyze the utterances and identify which parent utterances demonstrate the specific action. "
+            "Select an utterance only when its actual wording directly demonstrates the action; do not infer unstated intent. "
+            "Do not select utterances labeled CMD or NEG. If there is no direct evidence, return an empty list. "
             "Return ONLY a JSON object with: {{relevant_indices: [list of utterance indices]}}. "
             "relevant_indices: list of indices (0-based) where the parent performed the action. No extra text."
         ),
@@ -40,7 +42,9 @@ _SUMMARY_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
             PROMPT_DATA_GUARDRAIL
             + "\n\n"
             "You are an expert analyzing parent-child interactions. "
-            "Generate a brief summary (in Korean) describing the situation where the parent performed the specific action. "
+            "Generate a brief summary (in Korean) describing why the supplied dialogue demonstrates the action. "
+            "Use only the actual dialogue context as evidence; the action description is a criterion, not a quote source. "
+            "Do not invent or paraphrase a parent utterance as if it was said. "
             "The summary should be concise (1-2 sentences) and describe what happened in this interaction moment. "
             "The Korean summary MUST be written in polite formal speech (존댓말, e.g., '~합니다', '~합니다.'). "
             "Return ONLY the summary text, no extra explanation."
@@ -52,7 +56,7 @@ _SUMMARY_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
             "Action performed:\n{action_content}\n\n"
             "Challenge context:\n{challenge_name}\n\n"
             "Dialogue context:\n{dialogue_context}\n\n"
-            "Generate a brief summary describing this interaction moment."
+            "Generate a brief summary grounded only in this interaction moment."
         ),
     ),
 ])
@@ -224,7 +228,12 @@ def _find_relevant_utterances_with_llm(
                     int(idx) for idx in relevant_indices 
                     if isinstance(idx, (int, str)) and str(idx).isdigit() and 0 <= int(idx) < len(utterances)
                 ]
-                return valid_indices
+                filtered_indices = []
+                for idx in valid_indices:
+                    label = str(utterances[idx].get("label", "")).upper()
+                    if "CMD" not in label and "NEG" not in label:
+                        filtered_indices.append(idx)
+                return filtered_indices
     except Exception as e:
         print(f"Action detection LLM error: {e}")
     
@@ -235,7 +244,7 @@ def _find_relevant_utterances_with_llm(
 def _evaluate_action(
     challenge_spec: Dict[str, Any],
     action_content: str,
-    action_id: int,
+    action_id: str,
     utterances: List[Dict[str, Any]]
 ) -> Optional[Dict[str, Any]]:
     """단일 action 평가 - 수행된 action이 있으면 challenge_evaluation 반환"""
@@ -250,22 +259,18 @@ def _evaluate_action(
     if not relevant_indices:
         return None
     
-    # instances 생성 (순환 참조 방지를 위해 모든 값을 기본 타입으로 변환)
-    instances = []
-    for idx in relevant_indices[:10]:  # 최대 10개
-        timestamp = _find_utterance_timestamp(utterances, idx)
-        summary = _create_situation_summary(utterances, idx, action_content, challenge_name)
-        
-        instances.append({
-            "timestamp": str(timestamp),
-            "summary": str(summary)
-        })
+    # 같은 액션의 유사 발화가 반복되어도 대표 사례 하나만 반환한다.
+    selected_idx = relevant_indices[0]
+    instances = [{
+        "timestamp": str(_find_utterance_timestamp(utterances, selected_idx)),
+        "summary": str(_create_situation_summary(utterances, selected_idx, action_content, challenge_name)),
+    }]
     
     # challenge_evaluation 반환 (순환 참조 방지를 위해 모든 값을 기본 타입으로 변환)
     return {
         "challenge_name": str(challenge_name),
-        "action_id": int(action_id),
-        "detected_count": int(len(relevant_indices)),
+        "action_id": str(action_id),
+        "detected_count": 1,
         "description": str(action_content),
         "instances": instances
     }
@@ -341,11 +346,12 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
         challenge_actions_dict = {}  # action_id를 키로 사용하여 중복 제거
         
         for action_idx, action in enumerate(actions, start=1):
-            action_idx_real = int(action.get("action_id", 1))
             # action이 문자열인 경우와 딕셔너리인 경우 모두 처리
             if isinstance(action, str):
+                action_idx_real = str(action_idx)
                 action_content = str(action)
             elif isinstance(action, dict):
+                action_idx_real = str(action.get("action_id", action_idx))
                 action_content = str(action.get("content", "") or action.get("text", ""))
             else:
                 continue
@@ -363,7 +369,7 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
             
             # 수행된 action이 있으면 challenge_actions_dict에 추가 (중복 제거)
             if evaluation:
-                action_id = int(evaluation.get("action_id", 0))
+                action_id = str(evaluation.get("action_id", ""))
                 
                 # challenge_evaluations용 action 데이터 생성
                 action_data = {
@@ -390,7 +396,7 @@ def challenge_eval_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 
                 # action_evaluations에는 evaluation 전체가 아닌 필요한 정보만 포함 (순환 참조 방지)
                 action_evaluations.append({
-                    "action_id": action_idx_real,
+                    "action_id": str(action_idx_real),
                     "action_content": action_content,
                     "description": str(evaluation.get("description", "") or ""),
                     "detected_count": evaluation.get("detected_count", 0)

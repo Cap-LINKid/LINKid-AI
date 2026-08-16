@@ -269,35 +269,24 @@
     "value_type": "count"
     }
 ],
-"challenge_evaluation": {
-    "challenge_id": "chg-2025-01-positive-opportunity",
-    "title": "긍정적 기회 놓치기 3회 도전",
-    "goal_description": "아이가 성취나 행동을 공유했을 때 즉시 긍정적으로 반응한다.",
-    "required_count": 3,
-    "matched_count": 2,
-    "is_success": false,
-    "notes": "공유 장면은 3회였으나, 그중 2회만 즉시 긍정 반응을 해 목표에 조금 못 미쳤습니다.",
-    "evidences": [
+"challenge_evaluations": [
     {
-        "index": 1,
-        "dialogue": [
-        {"speaker": "child", "text": "엄마, 이거 나 혼자 만들었어!"},
-        {"speaker": "parent", "text": "와, 네가 혼자 했구나! 멋지다."}
-        ],
-        "matched": true,
-        "reason": "성취 공유에 즉시 긍정 반응을 보여 챌린지 조건을 만족."
-    },
-    {
-        "index": 2,
-        "dialogue": [
-        {"speaker": "child", "text": "이것도 봐줘."},
-        {"speaker": "parent", "text": "잠깐만, 정리부터 하자."}
-        ],
-        "matched": false,
-        "reason": "긍정적 반응보다 지시가 먼저 나와 조건 불충족."
-    }
+    "challenge_name": "긍정적 기회 놓치기 3회 도전",
+    "actions": [
+        {
+        "action_id": "act-001",
+        "detected_count": 1,
+        "description": "칭찬 문장은 짧게, 즉시 반응하기",
+        "instances": [
+            {
+            "timestamp": "00:01",
+            "summary": "부모가 아이의 성취를 인정하는 반응을 보여주셨습니다."
+            }
+        ]
+        }
     ]
-}
+    }
+]
 }
 ```
 
@@ -434,4 +423,3 @@ public class LinkIdAiClient {
     }
 }
 ```
-

@@ -600,32 +600,19 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
                         seen_refs = set()
                         selected_refs = []
                         for ref in expert_references_list:
-                            title = (ref.get("title") or "").strip()
                             reference = (ref.get("reference") or "").strip()
-                            if not title:
+                            if not reference:
                                 continue
-                            ref_key = f"{title}|{reference}"
-                            if ref_key in seen_refs:
+                            if reference in seen_refs:
                                 continue
-                            seen_refs.add(ref_key)
-                            selected_refs.append({"title": title, "reference": reference})
+                            seen_refs.add(reference)
+                            selected_refs.append(reference)
                             if len(selected_refs) >= 2:
                                 break
 
-                        reference_texts = []
-                        for ref in selected_refs:
-                            title = ref["title"]
-                            reference = ref["reference"]
-                            if reference:
-                                ref_text = f"'{title}' ({reference})"
-                            else:
-                                ref_text = f"'{title}'"
-
-                            reference_texts.append(ref_text)
-
-                        if reference_texts:
-                            # [참고] 뒤에 최대 2개까지 붙이기
-                            references_section = " [참고] " + "; ".join(reference_texts)
+                        if selected_refs:
+                            # 출처만 표시해 코칭 문구를 간결하게 유지한다.
+                            references_section = " [참고] " + "; ".join(selected_refs)
                             existing_rationale = coaching_data["challenge"].get("rationale", "") or ""
 
                             if existing_rationale.strip():
