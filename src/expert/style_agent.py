@@ -7,6 +7,7 @@ from typing import Dict, Any, List
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
+from src.utils.common_prompts import PROMPT_DATA_GUARDRAIL
 
 # label_mapping.json 기반 한국어 매핑
 _LABEL_MAPPING_PATH = Path(__file__).parent.parent.parent / "models" / "dpics-electra" / "label_mapping.json"
@@ -79,6 +80,8 @@ _SUMMARY_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "You are an expert analyzing parent-child communication patterns. "
             "Analyze the label distribution ratios for parent and child utterances and provide insights. "
             "Return ONLY a summary text in Korean (2-3 sentences) that describes the communication patterns, "
@@ -226,4 +229,3 @@ def analyze_style_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "summary": summary
         }
     }
-

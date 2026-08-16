@@ -6,6 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from src.utils.common import get_structured_llm
+from src.utils.common_prompts import PROMPT_DATA_GUARDRAIL
 
 
 class TranslationItem(BaseModel):
@@ -24,6 +25,8 @@ _TRANSLATE_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "You are a professional translator specializing in parent-child dialogue. "
             "Translate Korean utterances to English while preserving the speaker labels and emotional tone. "
             "For each utterance, identify the speaker: use 'MOM' for parent/mother/father (부모/엄마/아빠/어머니/아버지) "
@@ -140,4 +143,3 @@ def translate_ko_to_en_node(state: Dict[str, Any]) -> Dict[str, Any]:
         else:
             utterances_en = utterances_normalized
         return {"utterances_en": utterances_en}
-

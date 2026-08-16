@@ -7,6 +7,7 @@ from typing import Dict, Any
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
+from src.utils.common_prompts import PROMPT_DATA_GUARDRAIL
 from src.utils.pattern_manager import is_negative_pattern, normalize_pattern_name, is_positive_pattern
 
 
@@ -14,6 +15,8 @@ _COMMENT_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "You are a parenting coach analyzing parent-child dialogue. "
             "Write a brief comment (1-2 sentences in Korean) summarizing today's interaction. "
             "Focus on key observations about communication patterns. "
@@ -197,4 +200,3 @@ def summarize_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "current_metrics": current_metrics
         }
     }
-

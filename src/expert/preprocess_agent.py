@@ -7,6 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from src.utils.common import get_structured_llm
+from src.utils.common_prompts import PROMPT_DATA_GUARDRAIL
 
 
 class SpeakerMapping(BaseModel):
@@ -19,6 +20,8 @@ _SPEAKER_IDENTIFY_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "당신은 부모-자녀 대화를 분석하는 전문가입니다. "
             "대화 내용을 보고 A와 B 중 어느 것이 부모(엄마/아빠)이고 어느 것이 아이(자녀)인지 판단하세요.\n\n"
             "판단 기준:\n"
@@ -286,4 +289,3 @@ def preprocess_node(state: Dict[str, Any]) -> Dict[str, Any]:
             })
     
     return {"utterances_normalized": normalized}
-

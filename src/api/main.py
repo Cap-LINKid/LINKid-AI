@@ -144,7 +144,7 @@ def _run_analysis_with_status(execution_id: str, state: Dict[str, Any], request_
                 
                 # 노드 실행 순서 정의
                 sequential_nodes = ["preprocess", "translate_ko_to_en", "label_utterances", "detect_patterns"]
-                parallel_nodes = ["summarize", "key_moments", "analyze_style", "coaching_plan", "challenge_eval", "summary_diagnosis"]
+                parallel_nodes = ["key_moments", "analyze_style", "challenge_eval", "summary_diagnosis"]
                 
                 # 첫 번째 노드를 running으로 표시
                 if sequential_nodes:
@@ -175,16 +175,21 @@ def _run_analysis_with_status(execution_id: str, state: Dict[str, Any], request_
                                         # 다음 순차 노드
                                         update_node_status(execution_id, sequential_nodes[idx + 1], NodeStatus.RUNNING)
                                     elif idx + 1 == len(sequential_nodes):
-                                        # 병렬 노드 시작
+                                        # 패턴 탐지 뒤 독립 노드 시작
                                         for p_node in parallel_nodes:
                                             update_node_status(execution_id, p_node, NodeStatus.RUNNING)
                                 elif node_name in parallel_nodes:
-                                    # 병렬 노드가 모두 완료되었는지 확인
-                                    completed_parallel = sum(1 for p_node in parallel_nodes 
-                                                           if get_execution_status(execution_id)["nodes"][p_node]["status"] == NodeStatus.COMPLETED)
-                                    if completed_parallel == len(parallel_nodes):
-                                        # 모든 병렬 노드 완료, 집계 노드 시작
-                                        update_node_status(execution_id, "aggregate_result", NodeStatus.RUNNING)
+                                    # summary는 style/key moments 완료 뒤에 실행된다.
+                                    status_nodes = get_execution_status(execution_id)["nodes"]
+                                    if (
+                                        status_nodes["key_moments"]["status"] == NodeStatus.COMPLETED
+                                        and status_nodes["analyze_style"]["status"] == NodeStatus.COMPLETED
+                                    ):
+                                        update_node_status(execution_id, "summarize", NodeStatus.RUNNING)
+                                elif node_name == "summarize":
+                                    update_node_status(execution_id, "coaching_plan", NodeStatus.RUNNING)
+                                elif node_name == "coaching_plan":
+                                    update_node_status(execution_id, "aggregate_result", NodeStatus.RUNNING)
                                 
                                 if node_name == "aggregate_result":
                                     final_result = node_output.get(node_name, {}).get("result")

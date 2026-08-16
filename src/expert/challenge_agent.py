@@ -7,12 +7,15 @@ from typing import Dict, Any, Optional, List
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
+from src.utils.common_prompts import PROMPT_DATA_GUARDRAIL
 
 
 _ACTION_DETECTION_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "You are an expert analyzing parent-child interactions. "
             "Analyze the utterances and identify which parent utterances demonstrate the specific action. "
             "Return ONLY a JSON object with: {{relevant_indices: [list of utterance indices]}}. "
@@ -34,6 +37,8 @@ _SUMMARY_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "You are an expert analyzing parent-child interactions. "
             "Generate a brief summary (in Korean) describing the situation where the parent performed the specific action. "
             "The summary should be concise (1-2 sentences) and describe what happened in this interaction moment. "

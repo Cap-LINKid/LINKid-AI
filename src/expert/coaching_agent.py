@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
+from src.utils.common_prompts import PROMPT_DATA_GUARDRAIL
 from src.utils.vector_store import search_expert_advice
 from src.utils.pattern_manager import (
     get_negative_pattern_names_normalized,
@@ -21,6 +22,8 @@ _KEYWORD_GENERATION_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "You are an expert at generating search keywords for finding relevant parenting advice. "
             "Based on the dialogue summary, detected patterns, and key moments, generate 3-5 search keywords "
             "that would help find relevant expert advice for creating a coaching challenge. "
@@ -46,6 +49,8 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "You are a professional parenting coach. "
             "Create a personalized coaching plan based on:\n"
             "- 분석된 패턴 정보 (patterns)\n"
@@ -649,4 +654,3 @@ def _get_today_str() -> str:
 def _get_date_after_days(days: int) -> str:
     """오늘부터 days일 후 날짜를 YYYY-MM-DD 형식으로 반환"""
     return (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
-

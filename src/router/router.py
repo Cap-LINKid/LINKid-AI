@@ -27,7 +27,7 @@ def build_question_router():
     """
     새로운 대화 분석 파이프라인:
     ① preprocess → ② translate → ③ label → ④ detect_patterns
-    → ⑤-⑨ 병렬 분석 (5개) → ⑩ aggregate_result
+    → style/key moments/challenge/diagnosis → summary → coaching → aggregate_result
     """
     graph = StateGraph(RouterState)
 
@@ -54,13 +54,20 @@ def build_question_router():
     graph.add_edge("translate_ko_to_en", "label_utterances")
     graph.add_edge("label_utterances", "detect_patterns")
 
-    # detect_patterns 이후 병렬 실행
-    graph.add_edge("detect_patterns", "summarize")
+    # 패턴 탐지 후 서로 독립적인 분석 실행
     graph.add_edge("detect_patterns", "key_moments")
     graph.add_edge("detect_patterns", "analyze_style")
-    graph.add_edge("detect_patterns", "coaching_plan")
     graph.add_edge("detect_patterns", "challenge_eval")
     graph.add_edge("detect_patterns", "summary_diagnosis")
+
+    # 요약은 스타일·핵심 순간의 근거가 준비된 뒤 생성한다.
+    graph.add_edge("key_moments", "summarize")
+    graph.add_edge("analyze_style", "summarize")
+
+    # 코칭은 요약·스타일·핵심 순간을 모두 사용하므로 뒤에 생성한다.
+    graph.add_edge("summarize", "coaching_plan")
+    graph.add_edge("key_moments", "coaching_plan")
+    graph.add_edge("analyze_style", "coaching_plan")
 
     # 모든 병렬 분석이 완료되면 집계
     graph.add_edge("summarize", "aggregate_result")

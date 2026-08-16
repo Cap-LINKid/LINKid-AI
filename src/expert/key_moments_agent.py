@@ -7,6 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from src.utils.common import get_structured_llm, get_llm
+from src.utils.common_prompts import PROMPT_DATA_GUARDRAIL
 from src.utils.vector_store import search_expert_advice
 from src.utils.pattern_manager import extract_pattern_name as extract_pattern_name_from_manager, get_negative_pattern_names_normalized
 
@@ -22,6 +23,7 @@ class PositiveMoment(BaseModel):
     dialogue: List[DialogueUtterance] = Field(description="대화 발화 리스트 (한국어 원문 포함)")
     reason: str = Field(description="긍정적인 이유 설명 (한국어)")
     pattern_hint: str = Field(description="관련 패턴 힌트 (한국어)")
+    evidence_indices: List[int] = Field(description="근거가 되는 입력 발화의 0-based 인덱스")
 
 
 class NeedsImprovementMoment(BaseModel):
@@ -30,6 +32,7 @@ class NeedsImprovementMoment(BaseModel):
     reason: str = Field(description="개선이 필요한 이유 설명 (한국어)")
     better_response: str = Field(description="더 나은 응답 예시 (한국어)")
     pattern_hint: str = Field(description="관련 패턴 힌트 (한국어)")
+    evidence_indices: List[int] = Field(description="근거가 되는 입력 발화의 0-based 인덱스")
 
 
 class PatternExample(BaseModel):
@@ -39,6 +42,7 @@ class PatternExample(BaseModel):
     dialogue: List[DialogueUtterance] = Field(description="대화 발화 리스트 (한국어 원문 포함)")
     problem_explanation: str = Field(description="문제 설명 (한국어)")
     suggested_response: str = Field(description="제안된 응답 (한국어)")
+    evidence_indices: List[int] = Field(description="근거가 되는 입력 발화의 0-based 인덱스")
 
 
 class KeyMomentsContent(BaseModel):
@@ -77,6 +81,8 @@ _KEY_MOMENTS_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "당신은 부모-자녀 상호작용에서 핵심 순간을 식별하는 전문가입니다. "
             "핵심 순간을 추출하여 세 가지 카테고리로 분류하세요:\n"
             "1. 'positive': 부모가 잘 대응한 순간들 (감정 코칭, 공감, 인정, 질문형 발화, 선택권 제공 등)\n"
@@ -91,6 +97,8 @@ _KEY_MOMENTS_PROMPT = ChatPromptTemplate.from_messages([
             "  (1) 감지된 패턴이 '부정적인 패턴'으로 라벨링된 발화일 것\n"
             "  (2) 당신이 의미적으로 판단했을 때도 아이에게 부정적인 영향을 줄 가능성이 높은 발화일 것\n"
             "- 위 두 조건 중 하나라도 만족하지 않는 순간은 'positive'나 'needs_improvement'에 억지로 넣지 말고 제외합니다.\n\n"
+            "- 각 결과에는 반드시 입력 발화의 0-based `evidence_indices`를 넣으세요. 제공되지 않은 발화나 인덱스는 만들지 마세요.\n"
+            "- 아이의 감정·의도·장기적 영향을 단정하지 마세요. 근거가 부족하면 해당 순간을 제외하고, 필요한 경우 '~로 느꼈을 가능성이 있습니다'처럼 불확실성을 표현하세요.\n\n"
             "추가적인 의미 판단 기준 (semantic 판단 시 활용):\n"
             "- 질문형 발화(\"~할까?\", \"~어떻게 생각해?\", \"~하고 싶어?\", \"~맡아도 될까?\")는 일반적으로 아이의 의견을 존중하는 경향이 있으므로, "
             "패턴이 긍정적일 때 'positive' 후보로 간주합니다.\n"
@@ -142,6 +150,8 @@ _IMPROVE_NEEDS_IMPROVEMENT_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "당신은 부모-자녀 상호작용 전문가입니다. "
             "주어진 핵심 순간(key_moment)과 전문가 조언(expert_advice)을 바탕으로, "
             "'reason'과 'better_response'를 개선하여 작성하세요.\n\n"
@@ -174,6 +184,8 @@ _IMPROVE_POSITIVE_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "당신은 부모-자녀 상호작용에서 긍정적인 순간을 설명하는 전문가입니다. "
             "주어진 긍정적 핵심 순간(key_moment)과 전문가 조언(expert_advice)을 바탕으로, "
             "'reason'(왜 이 순간이 좋은지)을 더 풍부하고 구체적으로 개선해서 작성하세요.\n\n"
@@ -343,6 +355,11 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
         return _fallback_key_moments(utterances_labeled, patterns)
     
     key_moments_content = res.key_moments
+    def valid_evidence_indices(indices: List[int]) -> List[int]:
+        return sorted({
+            index for index in indices
+            if isinstance(index, int) and 0 <= index < len(utterances_labeled)
+        })
     
     # ========== 2단계: 한국어 원문 매핑 ==========
     
@@ -356,6 +373,7 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "dialogue": dialogue_with_ko,
             "problem_explanation": ex.problem_explanation,
             "suggested_response": ex.suggested_response,
+            "evidence_indices": valid_evidence_indices(ex.evidence_indices),
         })
     
     # pattern_examples 중 부정적 패턴만 유지
@@ -451,6 +469,7 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "dialogue": dialogue_with_ko,
             "reason": improved_reason,
             "pattern_hint": moment.pattern_hint,
+            "evidence_indices": valid_evidence_indices(moment.evidence_indices),
             "reference_descriptions": reference_descriptions,
         })
     
@@ -545,6 +564,7 @@ def key_moments_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "reason": improved_reason,
             "better_response": improved_better_response,
             "pattern_hint": moment.pattern_hint,
+            "evidence_indices": valid_evidence_indices(moment.evidence_indices),
             "expert_references": expert_references,
             "reference_descriptions": reference_descriptions,
         })
@@ -671,4 +691,3 @@ def _fallback_key_moments(utterances_labeled: List[Dict[str, Any]], patterns: Li
             "pattern_examples": pattern_examples_list
         }
     }
-

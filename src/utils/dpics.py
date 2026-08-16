@@ -7,6 +7,7 @@ from typing import List, Tuple
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
+from src.utils.common_prompts import PROMPT_DATA_GUARDRAIL
 
 # dpics_electra.py의 라벨 매핑 사용
 try:
@@ -43,6 +44,8 @@ _DPCS_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "You annotate each line of a parent-child dialogue using DPICS-style codes. "
             "Return ONLY a JSON array with objects: {{line, code}}. Codes: "
             f"{codes_list}. "

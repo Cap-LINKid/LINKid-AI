@@ -8,6 +8,7 @@ from typing import Dict, Any, List
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.utils.common import get_llm
+from src.utils.common_prompts import PROMPT_DATA_GUARDRAIL
 
 
 def _load_pattern_definitions() -> Dict[str, Any]:
@@ -112,13 +113,15 @@ _PATTERN_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "You are an expert in analyzing parent-child interaction patterns. "
             "Detect specific interaction patterns from labeled utterances using the pattern definitions provided below. "
             "\n"
             f"{_build_pattern_details_for_prompt()}"
             "\n\n"
             "DPICS label meanings (dpics_electra.py의 라벨 매핑 기준):\n"
-            "- RD: Reflective Statement (반영적 경청) - ALWAYS positive, shows understanding and empathy\n"
+            "- RD: Reflective Statement (반영적 경청) - usually signals reflective listening; verify the original utterance and context\n"
             "  Note: RF and RD are the same (both refer to Reflective Statement)\n"
             "- PR: Praise (구체적 칭찬) - positive, specific praise (Labeled/Unlabeled/Prosocial Talk)\n"
             "- BD: Behavior Description (행동 묘사) - positive, neutral description of behavior\n"
@@ -133,10 +136,12 @@ _PATTERN_PROMPT = ChatPromptTemplate.from_messages([
             "1. Analyze the labeled utterances carefully and match them to the patterns defined above.\n"
             "2. Use the pattern definitions, examples, and DPICS codes to identify patterns accurately.\n"
             "3. Consider the context and sequence of utterances when detecting patterns.\n"
-            "4. For each detected pattern, provide: pattern_name (must match Korean name from definitions), description, utterance_indices, severity (low/medium/high), and pattern_type (positive/negative).\n"
-            "5. pattern_name must exactly match one of the Korean pattern names from the definitions above.\n"
+            "4. A DPICS label is evidence, not proof. Confirm every pattern against the original utterance and adjacent context.\n"
+            "5. Detect a pattern only when at least one supplied utterance directly supports it; otherwise return an empty array.\n"
+            "6. For each detected pattern, provide: pattern_name (must match Korean name from definitions), description, utterance_indices, severity (low/medium/high), pattern_type (positive/negative), and confidence (low/medium/high).\n"
+            "7. pattern_name must exactly match one of the Korean pattern names from the definitions above; utterance_indices must be supplied indices only.\n"
             "\n"
-            "Return ONLY a JSON array of objects with: {{pattern_name, description, utterance_indices, severity, pattern_type}}. "
+            "Return ONLY a JSON array of objects with: {{pattern_name, description, utterance_indices, severity, pattern_type, confidence}}. "
             "No extra text."
         ),
     ),
@@ -153,16 +158,16 @@ _PATTERN_VALIDATION_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
+            PROMPT_DATA_GUARDRAIL
+            + "\n\n"
             "You are an expert in validating parent-child interaction pattern detections. "
             "Your task is to verify if detected patterns are correctly identified. "
             "Pay special attention to false positives:\n"
             "- '행동 묘사' (BD) should NOT include negative, critical, or judgmental statements\n"
             "- '구체적 칭찬' (PR) should NOT include sarcasm, criticism, or negative comments\n"
             "- '반영적 경청' (RD) should NOT include dismissive or invalidating responses\n"
-            "- IMPORTANT: RD labels indicate reflective listening and are ALWAYS positive patterns. "
-            "Do NOT reclassify RD labeled utterances as negative patterns like '비판적 반응'.\n"
-            "- Only reclassify as negative if the utterance clearly contains criticism, sarcasm, or invalidation "
-            "AND the label is clearly wrong (e.g., PR labeled but contains sarcasm)\n"
+            "- A DPICS label is a useful signal but may be wrong. Validate it against the actual utterance and nearby context.\n"
+            "- Reclassify only when the supplied utterance directly supports the correction; otherwise mark the detection invalid.\n"
             "Return ONLY a JSON array with validation results. "
             "Each object should have: {{pattern_index, is_valid, reason, corrected_pattern_name (if invalid)}}. "
             "is_valid: true if the pattern is correctly identified, false otherwise. "
@@ -341,10 +346,31 @@ def detect_patterns_node(state: Dict[str, Any]) -> Dict[str, Any]:
         import traceback
         traceback.print_exc()
     
+    # 모델 출력을 정의된 패턴명과 실제 발화 인덱스로 제한한다.
+    allowed_pattern_types = {
+        p.get("name"): "positive" for p in _PATTERN_DEFINITIONS.get("positive_patterns", [])
+    }
+    allowed_pattern_types.update({
+        p.get("name"): "negative" for p in _PATTERN_DEFINITIONS.get("negative_patterns", [])
+    })
+    sanitized_patterns = []
+    for pattern in patterns:
+        name = pattern.get("pattern_name")
+        indices = pattern.get("utterance_indices", [])
+        if name not in allowed_pattern_types or not isinstance(indices, list):
+            continue
+        valid_indices = [idx for idx in indices if isinstance(idx, int) and 0 <= idx < len(utterances_labeled)]
+        if not valid_indices:
+            continue
+        pattern["utterance_indices"] = sorted(set(valid_indices))
+        pattern["pattern_type"] = allowed_pattern_types[name]
+        pattern["confidence"] = pattern.get("confidence", "medium")
+        sanitized_patterns.append(pattern)
+
     # 중복 제거 (패턴명과 발화 인덱스 기반)
     seen = set()
     unique_patterns = []
-    for p in patterns:
+    for p in sanitized_patterns:
         indices = tuple(sorted(p.get("utterance_indices", [])))
         key = (p.get("pattern_name"), indices)
         
@@ -354,6 +380,10 @@ def detect_patterns_node(state: Dict[str, Any]) -> Dict[str, Any]:
     
     # LLM 기반 패턴 검증
     validated_patterns = _validate_patterns_with_llm(unique_patterns, utterances_labeled)
-    
-    return {"patterns": validated_patterns}
-
+    return {
+        "patterns": [
+            pattern for pattern in validated_patterns
+            if pattern.get("pattern_name") in allowed_pattern_types
+            and all(isinstance(idx, int) and 0 <= idx < len(utterances_labeled) for idx in pattern.get("utterance_indices", []))
+        ]
+    }
