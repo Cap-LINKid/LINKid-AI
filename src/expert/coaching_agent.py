@@ -59,12 +59,12 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "- VectorDB에서 가져온 전문가 레퍼런스와 조언 (expert_advice_section)\n\n"
             "Return ONLY a JSON object with the following structure:\n"
             "{{\n"
-            '  \"summary\": \"요약 텍스트 (2-4문장)\",\n'
+            '  \"summary\": \"요약 텍스트 (최대 2문장)\",\n'
             '  \"challenge\": {{\n'
-            '    \"title\": \"챌린지 제목 (가장 중요한 부정적 패턴 + 맥락을 드러내는 짧은 문구)\",\n'
-            '    \"goal\": \"챌린지 목표 (1문장, 어떤 대화/행동을 어떻게 바꾸는지 명확히)\",\n'
-            '    \"actions\": [\"액션1\", \"액션2\", \"액션3\"],\n'
-            '    \"rationale\": \"챌린지 생성 이유 (필요한 경우에만, 패턴·대화·레퍼런스 근거 요약)\"\n'
+            '    \"title\": \"챌린지 제목 (30자 이내)\",\n'
+            '    \"goal\": \"챌린지 목표 (60자 이내, 1문장)\",\n'
+            '    \"actions\": [\"짧고 일반화된 액션 1\", \"짧고 일반화된 액션 2\", \"짧고 일반화된 액션 3\"],\n'
+            '    \"rationale\": \"챌린지 생성 이유 (있을 때만, 1문장)\"\n'
             "  }},\n"
             '  \"qa_tips\": [\n'
             '    {{\"question\": \"질문1\", \"answer\": \"답변1\"}},\n'
@@ -73,28 +73,15 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "}}\n\n"
             "요구사항:\n"
             "1) 챌린지는 **가장 빈번하고 중요한 부정적 패턴**을 중심으로 만들 것.\n"
-            "2) 각 action은 반드시 다음 세 가지를 동시에 반영해야 함:\n"
-            "   - 패턴 정보 (예: '비판적 반응', '과도한 지시' 등)\n"
-            "   - 실제 대화에서 반복된 구체 장면 (예: 용돈, 물건 뺏기, 고집 부림, 협박 발화 등)\n"
-            "   - 전문가 레퍼런스에서 제시한 구체적 방법 (말문장 예시, 태도 변화, 훈육 원칙 등)\n"
-            "3) summary에는 반드시 다음이 포함되어야 함:\n"
-            "   - 왜 이 챌린지를 선택했는지 (어떤 패턴과 상황이 반복되었는지)\n"
-            "   - **반드시 전문가 레퍼런스 내용을 인용**:\n"
-            "     - expert_advice_section에 '[needs_improvement 참고]'로 표시된 전문가 조언이 있으면, "
-            "     반드시 해당 조언의 핵심 내용을 직접 인용하여 summary에 포함해야 합니다.\n"
-            "     - 전문가 조언의 구체적인 문장이나 원칙을 그대로 인용하거나 요약하여 포함하세요.\n"
-            "     - 예) \"전문가 조언에 따르면, '충격 요법은 부모의 착각입니다. 따끔하게 독한 말을 하면 "
-            "     아이가 정신을 차리고 행동을 바꿀 거라 기대하지만, 이는 부모만의 착각일 수 있습니다. "
-            "     자녀에게 그런 말은 동기부여가 아니라 인격적인 공격으로 다가옵니다.' 따라서 비난 대신 "
-            "     공감과 이해를 바탕으로 한 대화 방식을 적용한 챌린지를 설계했습니다.\"\n"
-            "   - 추가로 실제 대화 문장 예시 1개 이상도 포함하면 더 좋습니다.\n"
-            "4) rationale은 다음 조건에서만 포함:\n"
-            "   - expert_advice_section에 실제 레퍼런스가 존재할 때\n"
-            "   - 패턴·대화·레퍼런스 간 연결 근거를 1-2문장으로 정리할 때\n"
-            "   레퍼런스 인용 시에는 LLM이 임의로 만들지 말고, expert_advice_section 안에 있는 **실제 제목/내용**만 사용할 것.\n"
+            "2) actions는 일반적으로 재사용 가능한 실행 원칙으로 작성합니다. 각 action은 한국어 한 문장, 20~70자입니다.\n"
+            "   - 특정 아이·부모·물건·놀이·사건·원문 인용·시간을 언급하지 마세요.\n"
+            "   - 대화 사례, 긴 설명, 근거, 여러 단계, 조건문을 action에 넣지 마세요.\n"
+            "   - 예: '아이의 거절을 인정한 뒤 선택 가능한 두 가지를 제안합니다.'\n"
+            "3) summary는 챌린지를 선택한 패턴과 개선 방향만 최대 2문장으로 요약합니다. 실제 대화 인용은 넣지 마세요.\n"
+            "4) rationale은 실제 레퍼런스가 있을 때만 패턴·근거의 연결을 1문장으로 작성합니다. 직접 인용은 하지 마세요.\n"
             "5) QA tips는 다음을 다루도록 구성:\n"
             "   - 이 패턴을 가진 부모가 자주 할 법한 질문 2개 이상\n"
-            "   - 각 질문에 대해, 대화 예시와 전문가 레퍼런스를 바탕으로 한 현실적인 답변\n"
+            "   - 각 질문에 대해 짧고 현실적인 답변\n"
             "6) 절대 새로운 이론·연구·저자를 상상해서 만들지 말 것. "
             "expert_advice_section에 없는 정보는 인용하지 말 것.\n"
             "7) 모든 텍스트는 한국어로 작성하고, JSON 이외의 추가 설명은 포함하지 말 것."
@@ -110,16 +97,39 @@ _COACHING_PROMPT = ChatPromptTemplate.from_messages([
             "대표 대화 예시:\n{dialogue_examples}\n\n"
             "전문가 레퍼런스 및 조언 (VectorDB 검색 결과):\n{expert_advice_section}\n\n"
             "위 정보를 바탕으로 코칭 계획을 JSON 형식으로 작성해주세요.\n"
-            "- 챌린지는 반드시 위 **부정적 패턴**과 **구체적인 대화 장면**에 직접 대응해야 합니다.\n"
-            "- actions와 goal은 전문가 조언을 실제 부모-자녀 대화에 적용하는 형태로, "
-            "구체적인 말문장/행동 수준까지 내려가서 작성해주세요.\n"
-            "- **중요**: expert_advice_section에 '[needs_improvement 참고]'로 표시된 전문가 조언이 있으면, "
-            "summary에 반드시 해당 조언의 핵심 내용을 직접 인용하거나 요약하여 포함해야 합니다. "
-            "전문가 조언의 구체적인 문장, 원칙, 설명을 그대로 인용하거나 요약하여 summary에 반영하세요. "
-            "이것은 선택사항이 아니라 필수 요구사항입니다."
+            "- 챌린지는 위 부정적 패턴에 대응하되, 여러 상황에 적용 가능한 형태로 작성하세요.\n"
+            "- actions는 사례가 아닌 짧은 실행 원칙만 작성하세요."
         ),
     ),
 ])
+
+_MAX_CHALLENGE_ACTION_CHARS = 70
+
+
+def _shorten_challenge_action(action: Any) -> str:
+    """Keep challenge actions compact even when a model ignores the output budget."""
+    text = re.sub(r"\s+", " ", str(action or "")).strip()
+    if not text:
+        return ""
+
+    first_sentence = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)[0]
+    if len(first_sentence) <= _MAX_CHALLENGE_ACTION_CHARS:
+        return first_sentence
+    return first_sentence[:_MAX_CHALLENGE_ACTION_CHARS].rstrip(" ,;:")
+
+
+def _normalize_challenge_actions(challenge: Dict[str, Any]) -> None:
+    actions = challenge.get("actions", [])
+    if not isinstance(actions, list):
+        challenge["actions"] = []
+        return
+
+    compact_actions = []
+    for action in actions[:3]:
+        compact_action = _shorten_challenge_action(action)
+        if compact_action:
+            compact_actions.append(compact_action)
+    challenge["actions"] = compact_actions
 
 
 def _find_most_frequent_pattern(patterns: List[Dict[str, Any]], key_moments: Dict[str, Any]) -> Optional[str]:
@@ -567,6 +577,7 @@ def coaching_plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(coaching_data, dict):
                 # 챌린지 정보에 날짜 정보 추가
                 if "challenge" in coaching_data and isinstance(coaching_data["challenge"], dict):
+                    _normalize_challenge_actions(coaching_data["challenge"])
                     coaching_data["challenge"]["period_days"] = 7
                     coaching_data["challenge"]["suggested_period"] = {
                         "start": _get_today_str(),
