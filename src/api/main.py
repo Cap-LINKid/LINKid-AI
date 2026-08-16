@@ -280,7 +280,7 @@ def _run_analysis_with_status(execution_id: str, state: Dict[str, Any], request_
 
 
 @app.post("/analyze", response_model=ExecutionResponse)
-async def analyze_dialogue(request: DialogueRequest, background_tasks: BackgroundTasks):
+async def analyze_dialogue(request: DialogueRequest, background_tasks: BackgroundTasks, raw_request: Request):
     """대화 분석 실행 (비동기)"""
     # challenge_specs 우선, 없으면 challenge_spec을 리스트로 변환
     challenge_specs = request.challenge_specs
@@ -325,7 +325,7 @@ async def analyze_dialogue(request: DialogueRequest, background_tasks: Backgroun
     
     execution_id = create_execution(state)
     update_execution_status(execution_id, ExecutionStatus.RUNNING)
-    request_id = getattr(request.state, "request_id", "unknown")
+    request_id = getattr(raw_request.state, "request_id", "unknown")
     logger.info(
         "analysis.queued",
         extra={"event": "analysis.queued", "execution_id": execution_id, "request_id": request_id},
